@@ -125,7 +125,7 @@ def seed_demo_messages():
          " Gary 线上环境那个接口报错你看到了吗", "received"),
         ("m004", "wechat", "客户-王总", "微信", "10:05", "today", "text",
          "合同扫描件发我一份，今天要用", "received"),
-        ("m005", "wechat", "前端-阿珂", "项目群-微信", "10:22", "today", "text",
+        ("m005", "dingtalk", "前端-阿珂", "项目群-钉钉", "10:22", "today", "text",
          "统一入口的筛选联动bug我修好了，下午提测", "received"),
         ("m006", "wechat", "老婆", "微信", "11:00", "today", "text",
          "晚上早点回来吃饭", "received"),
