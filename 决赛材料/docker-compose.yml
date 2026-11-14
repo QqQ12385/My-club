@@ -1,0 +1,14 @@
+services:
+  msg-center:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DINGTALK_WEBHOOK=${DINGTALK_WEBHOOK:-}
+      - RPA_MODE=${RPA_MODE:-simulated}
+    volumes:
+      - msg_data:/app/app/data
+    restart: unless-stopped
+volumes:
+  msg_data:

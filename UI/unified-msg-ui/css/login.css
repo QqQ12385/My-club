@@ -1,0 +1,219 @@
+/* ===== login.css — 登录页 =====
+   左品牌区（深墨底 + 白字，克制不花）+ 右表单区（白底）
+   ============================================================ */
+
+body.login-open { overflow: hidden; }
+
+.login-layer {
+  position: fixed; inset: 0; z-index: 120;
+  display: flex;
+  background: var(--card);
+}
+/* display:flex 会覆盖 hidden，显式还原 */
+.login-layer[hidden] { display: none; }
+
+/* ===== 左侧品牌区 ===== */
+.login-left {
+  width: 46%; max-width: 560px;
+  padding: 46px 48px 30px;
+  background: #262220;
+  color: #fff;
+  display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.lg-brand { display: flex; align-items: center; gap: 10px; }
+.lg-brand .logo {
+  width: 32px; height: 32px;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--primary);
+  font-size: 15px; font-weight: bold;
+  display: flex; align-items: center; justify-content: center;
+}
+.lg-brand span { font-size: 14px; letter-spacing: 0.3px; color: rgba(255, 255, 255, 0.9); }
+
+.login-left h2 {
+  margin-top: 48px;
+  font-size: 30px;
+  line-height: 1.42;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+.lg-desc {
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.85;
+  color: rgba(255, 255, 255, 0.62);
+  max-width: 330px;
+}
+
+.lg-points { margin-top: auto; display: flex; flex-direction: column; gap: 16px; }
+.lg-point { display: flex; align-items: flex-start; gap: 11px; font-size: 12.5px; }
+.lg-point i {
+  font-style: normal;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  font-size: 10.5px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.lg-point b { display: block; font-weight: bold; color: rgba(255, 255, 255, 0.92); }
+.lg-point span { display: block; margin-top: 3px; color: rgba(255, 255, 255, 0.5); font-size: 11.5px; }
+
+.lg-foot {
+  margin-top: 34px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.32);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 14px;
+}
+
+/* ===== 右侧表单 ===== */
+.login-right {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
+  background: var(--card);
+}
+.login-card {
+  width: 100%; max-width: 336px;
+  animation: loginIn 0.28s ease-out;
+}
+@keyframes loginIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.login-card h3 { font-size: 22px; letter-spacing: 0.5px; }
+.lg-sub { font-size: 12.5px; color: var(--text-3); margin-top: 7px; }
+
+.lg-field { margin-top: 18px; }
+.lg-field > span { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.lg-field input {
+  width: 100%;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  background: var(--card);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.lg-field input::placeholder { color: #b7b5b1; }
+.lg-field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.lg-field.error input { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+
+.lg-row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+.lg-check { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); cursor: pointer; }
+.lg-check input { accent-color: var(--primary); width: 13px; height: 13px; cursor: pointer; }
+.lg-forget {
+  border: none; background: none;
+  font-size: 11.5px; color: var(--text-3);
+  cursor: pointer; padding: 0;
+}
+.lg-forget:hover { color: var(--primary-dark); text-decoration: underline; }
+
+.lg-error {
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid #ecc8c2;
+  border-radius: 5px;
+  padding: 6px 9px;
+}
+.lg-error[hidden] { display: none; }
+
+.lg-submit {
+  width: 100%;
+  margin-top: 18px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  letter-spacing: 3px;
+  padding: 11px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.lg-submit:hover { background: var(--primary-dark); }
+.lg-submit:disabled { opacity: 0.7; cursor: default; letter-spacing: 1px; }
+
+.lg-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 18px 0;
+  font-size: 11px; color: var(--text-3);
+}
+.lg-or::before, .lg-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.lg-qr {
+  width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 10px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.lg-qr:hover { border-color: var(--primary); color: var(--primary-dark); }
+.lg-qr-ic { width: 16px; height: 16px; }
+.lg-qr.scanning { color: var(--primary-dark); border-color: var(--primary); background: var(--primary-soft); }
+
+.lg-spin {
+  width: 13px; height: 13px;
+  border: 2px solid var(--primary-soft);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: lgSpin 0.7s linear infinite;
+}
+@keyframes lgSpin { to { transform: rotate(360deg); } }
+
+.lg-demo {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line-2);
+  font-size: 11.5px;
+  color: var(--text-3);
+  display: flex; align-items: center; gap: 5px;
+  flex-wrap: wrap;
+}
+.lg-demo b { color: var(--text-2); font-weight: bold; }
+.lg-demo button {
+  margin-left: auto;
+  border: none; background: none;
+  color: var(--primary-dark);
+  font-size: 11.5px; font-family: inherit;
+  cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.lg-demo button:hover { color: var(--primary); }
+
+/* 登录/注册切换 */
+.lg-switch {
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.lg-switch-btn {
+  border: none; background: none;
+  color: var(--primary-dark);
+  font-size: 12.5px; font-family: inherit;
+  cursor: pointer; padding: 0;
+  font-weight: 600;
+}
+.lg-switch-btn:hover { color: var(--primary); text-decoration: underline; }
+
+/* ===== 窄屏：只留表单 ===== */
+@media (max-width: 900px) {
+  .login-left { display: none; }
+  .login-right { padding: 24px 20px; }
+}

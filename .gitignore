@@ -1,0 +1,23 @@
+# 凭据与敏感信息（严禁上传）
+.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 数据库（运行时生成）
+*.db
+*.db-wal
+*.db-shm
+*.db.bak
+
+# 运行日志
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
