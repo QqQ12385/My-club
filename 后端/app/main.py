@@ -15,7 +15,7 @@ import secrets
 import time
 import uuid
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -447,6 +447,33 @@ async def collector_incoming(req: IncomingReq):
     """归一化入口：钉钉事件订阅回调、Power Automate RPA 采集流都打到这。
     返回 {"ok":true,"duplicated":false,"id":"..."}；重复消息 duplicated=true。"""
     return await _ingest(req.model_dump())
+
+
+@app.post("/api/collector/plain")
+async def collector_plain(request: Request):
+    """纯文本采集入口（Power Automate 免拼 JSON 专用）。
+    Body 即消息内容（text/plain）；可选首行写 `发送人@会话名`，
+    不写则默认发送人=微信-RPA采集、会话=微信。"""
+    raw = await request.body()
+    text = raw.decode("utf-8", errors="replace").strip()
+    # Power Automate 会把中文 URL 编码成 %XX 形式，这里自动还原
+    import urllib.parse
+    if "%" in text:
+        decoded = urllib.parse.unquote(text)
+        if decoded != text:
+            text = decoded.strip()
+    if not text:
+        raise HTTPException(422, "empty body")
+    lines = text.splitlines()
+    sender, chat = "微信-RPA采集", "微信"
+    if len(lines) > 1 and "@" in lines[0] and len(lines[0]) < 40:
+        head = lines[0].split("@", 1)
+        sender, chat = head[0].strip() or sender, (head[1].strip() or chat)
+        content = "\n".join(lines[1:]).strip()
+    else:
+        content = text
+    return await _ingest({"platform": "wechat", "sender": sender,
+                          "chat": chat, "content": content})
 
 
 async def _ingest(raw: dict) -> dict:
