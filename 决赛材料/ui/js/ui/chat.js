@@ -259,14 +259,76 @@ function toggleEmojiPanel() {
   panel.hidden = !panel.hidden;
 }
 
-/* ---------- 工具栏其他按钮（演示提示） ---------- */
+/* ---------- 工具栏其他按钮 ---------- */
 function handleTool(name) {
+  if (name === "file") {           // 真实文件发送（钉钉走机器人媒体上传 API）
+    $("fileInput").value = "";
+    $("fileInput").click();
+    return;
+  }
   const tips = {
-    file: "演示环境：文件发送依赖各平台客户端能力，闭环演示以文本回复为主",
     screenshot: "演示环境：截图能力依赖各平台客户端，统一入口保留该扩展位",
     voice: "演示环境：语音输入依赖各平台客户端，统一入口保留该扩展位",
   };
   toast(tips[name] || "该能力在演示环境中未启用");
+}
+
+/* ---------- 文件发送（真实接口）----------
+   POST ${API_BASE}/messages/:id/send-file（multipart）
+   钉钉：媒体上传 API + 机器人 sampleFile 真实发到群；
+   微信：RPA 通道（个人号无 API）。状态流转与文本回复一致。 */
+async function handleFileSend(file) {
+  const msg = state.messages.find(m => m.id === state.currentMsgId);
+  if (!msg) return;
+  if (file.size > 20 * 1024 * 1024) { toast("文件超过 20MB（钉钉机器人上传上限）"); return; }
+
+  const bubble = {
+    from: "me", text: `📎 [文件] ${file.name}`, time: nowTime(),
+    sendStatus: "sending", channel: planOf(msg).primary,
+  };
+  appendThread(msg.id, bubble);
+  toast(`正在上传「${file.name}」并发送到${PLATFORMS[msg.platform].name}...`);
+
+  try {
+    const realId = await resolveBackendId(msg);
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    const resp = await fetch(`${API_BASE}/messages/${encodeURIComponent(realId)}/send-file`, {
+      method: "POST",
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+      body: fd,
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      bubble.channel = data.channel || bubble.channel;
+      bubble.sendStatus = "sent";
+      msg.status = "replied";
+      addTrace(msg.id, "已回复", `文件发送成功：${file.name}`);
+      renderAll();
+      toast(`文件「${file.name}」已发送给 ${msg.sender}${msg.chat ? "（" + msg.chat + "）" : ""}`);
+      // synced 由 WS 回流；2.5s 兜底
+      setTimeout(() => {
+        if (msg.status !== "synced") {
+          bubble.sendStatus = "synced"; msg.status = "synced";
+          addTrace(msg.id, "已同步到平台", `文件已回流至 ${PLATFORMS[msg.platform].name}`);
+          renderAll();
+        }
+      }, 2500);
+    } else {
+      bubble.sendStatus = "failed";
+      bubble.failReason = data.reason || "文件发送失败";
+      msg.status = "failed";
+      addTrace(msg.id, "发送失败", `文件发送失败：${bubble.failReason}`);
+      renderAll();
+      toast("文件发送失败：" + bubble.failReason);
+    }
+  } catch (e) {
+    bubble.sendStatus = "failed";
+    bubble.failReason = "后端不可达，请确认启动.bat 已运行";
+    msg.status = "failed";
+    renderAll();
+    toast("文件发送失败：后端不可达");
+  }
 }
 
 /* ---------- 格式转换预览（折叠） ---------- */

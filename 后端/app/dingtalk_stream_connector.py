@@ -107,6 +107,61 @@ def start_in_background():
     return t
 
 
+async def upload_media(filename: str, content: bytes) -> dict:
+    """上传媒体文件到钉钉，返回 {"ok": bool, "mediaId": str, "reason": str}。
+    走机器人媒体上传 OpenAPI（文件≤20MB）。"""
+    if not (_APP_KEY and _APP_SECRET):
+        return {"ok": False, "mediaId": "", "reason": "未配置钉钉企业应用凭据"}
+    token = await _get_token()
+    if not token:
+        return {"ok": False, "mediaId": "", "reason": "获取钉钉 access_token 失败"}
+    url = "https://api.dingtalk.com/v1.0/robot/media/upload"
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(url,
+                             params={"robotCode": _APP_KEY},
+                             headers={"x-acs-dingtalk-access-token": token},
+                             files={"media": (filename, content)})
+            data = r.json()
+            media_id = data.get("mediaId")
+            if r.status_code != 200 or not media_id:
+                return {"ok": False, "mediaId": "",
+                        "reason": f"钉钉媒体上传失败: {data.get('message') or data}"}
+            return {"ok": True, "mediaId": media_id}
+    except Exception as e:
+        return {"ok": False, "mediaId": "", "reason": f"钉钉媒体上传异常: {e}"}
+
+
+async def send_file(open_conversation_id: str, media_id: str, filename: str) -> dict:
+    """通过机器人发送文件消息到指定群/会话（msgKey=sampleFile）。"""
+    if not (_APP_KEY and _APP_SECRET):
+        return {"ok": False, "reason": "未配置钉钉企业应用凭据"}
+    token = await _get_token()
+    if not token:
+        return {"ok": False, "reason": "获取钉钉 access_token 失败"}
+    url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
+    headers = {
+        "Content-Type": "application/json",
+        "x-acs-dingtalk-access-token": token,
+    }
+    body = {
+        "robotCode": _APP_KEY,
+        "openConversationId": open_conversation_id,
+        "msgKey": "sampleFile",
+        "msgParam": json.dumps({"mediaId": media_id, "fileName": filename},
+                               ensure_ascii=False),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(url, headers=headers, json=body)
+            data = r.json()
+            if r.status_code != 200 or data.get("processQueryKey") is None:
+                return {"ok": False, "reason": f"钉钉文件发送失败: {data.get('message') or data}"}
+            return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "reason": f"钉钉文件发送异常: {e}"}
+
+
 async def send_message(open_conversation_id: str, text: str, at_user_id: str = "") -> dict:
     """通过机器人主动发消息到指定群/会话（页面回复钉钉消息走这里）。
 

@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>统一消息中心 — 多平台连接器</title>
   <!-- 样式按模块拆分：base(变量/基础) → layout(骨架) → components(通用组件) → chat(会话面板) -->
-  <link rel="stylesheet" href="css/base.css?v=20261114a">
-  <link rel="stylesheet" href="css/layout.css?v=20261114a">
-  <link rel="stylesheet" href="css/components.css?v=20261114a">
-  <link rel="stylesheet" href="css/chat.css?v=20261114a">
-  <link rel="stylesheet" href="css/views.css?v=20261114a">
-  <link rel="stylesheet" href="css/login.css?v=20261114a">
+  <link rel="stylesheet" href="css/base.css?v=20261114b">
+  <link rel="stylesheet" href="css/layout.css?v=20261114b">
+  <link rel="stylesheet" href="css/components.css?v=20261114b">
+  <link rel="stylesheet" href="css/chat.css?v=20261114b">
+  <link rel="stylesheet" href="css/views.css?v=20261114b">
+  <link rel="stylesheet" href="css/login.css?v=20261114b">
 </head>
 <body>
 
@@ -122,6 +122,11 @@
         </svg>
         应用连接
         <span class="ta-count" id="appConnCount">3/3</span>
+      </button>
+
+      <!-- 导出消息记录：CSV（Excel 可直接打开） -->
+      <button class="profile-chip" id="exportBtn" title="导出全部消息记录为 CSV 文件" style="flex-direction:row;">
+        <span class="pc-info"><b>导出记录</b></span>
       </button>
 
       <!-- 个人资料标签：点击进入个人资料页 -->
@@ -346,6 +351,7 @@
           </div>
 
           <div class="chat-input-row">
+            <input type="file" id="fileInput" hidden />
             <textarea id="chatInput" rows="3" placeholder="输入回复，Enter 发送，Shift+Enter 换行..."></textarea>
             <button class="send-btn" id="chatSend">发送</button>
           </div>
@@ -390,15 +396,15 @@
 
   <!-- 脚本按模块加载（顺序不可调换）：
        config → mock-data → core(format-adapter → store → api) → ui(render → chat) → app -->
-  <script src="js/config.js?v=20261114a"></script>
-  <script src="js/data/mock-data.js?v=20261114a"></script>
-  <script src="js/core/format-adapter.js?v=20261114a"></script>
-  <script src="js/core/store.js?v=20261114a"></script>
-  <script src="js/core/api.js?v=20261114a"></script>
-  <script src="js/ui/render.js?v=20261114a"></script>
-  <script src="js/ui/chat.js?v=20261114a"></script>
-  <script src="js/ui/views.js?v=20261114a"></script>
-  <script src="js/ui/login.js?v=20261114a"></script>
-  <script src="js/app.js?v=20261114a"></script>
+  <script src="js/config.js?v=20261114b"></script>
+  <script src="js/data/mock-data.js?v=20261114b"></script>
+  <script src="js/core/format-adapter.js?v=20261114b"></script>
+  <script src="js/core/store.js?v=20261114b"></script>
+  <script src="js/core/api.js?v=20261114b"></script>
+  <script src="js/ui/render.js?v=20261114b"></script>
+  <script src="js/ui/chat.js?v=20261114b"></script>
+  <script src="js/ui/views.js?v=20261114b"></script>
+  <script src="js/ui/login.js?v=20261114b"></script>
+  <script src="js/app.js?v=20261114b"></script>
 </body>
 </html>

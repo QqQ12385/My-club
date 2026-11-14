@@ -83,6 +83,11 @@ function init() {
   document.querySelectorAll(".tool-btn[data-tool]").forEach(btn => {
     btn.onclick = () => handleTool(btn.dataset.tool);
   });
+  // 文件选择 → 真实发送（钉钉媒体上传 API）
+  $("fileInput").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f) handleFileSend(f);
+  });
 
   // 状态流转弹窗
   $("closeTraceModal").onclick = () => $("traceModal").classList.remove("show");
@@ -120,9 +125,14 @@ function init() {
     };
   });
 
-  // 顶栏入口：个人资料 / 应用连接
+  // 顶栏入口：个人资料 / 应用连接 / 导出记录
   $("profileBtn").onclick = () => openView("profile");
   $("appsBtn").onclick = () => openView("apps");
+  const exportBtn = $("exportBtn");
+  if (exportBtn) exportBtn.onclick = () => {
+    window.open("/api/messages/export", "_blank");
+    toast("已导出消息记录 CSV（UTF-8，Excel 可直接打开）");
+  };
   initViewEvents();
 
   // Esc 关闭视图层

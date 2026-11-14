@@ -15,9 +15,9 @@ import secrets
 import time
 import uuid
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Header, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Header, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from pathlib import Path
 
@@ -396,6 +396,78 @@ async def reply(mid: str, req: ReplyReq):
         db.add_trace(mid, "发送失败", f"{result.channel}：{result.reason}")
         await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "failed"}})
         return {"ok": False, "channel": result.channel, "reason": result.reason}
+
+
+# ------------------------------------------------------------------ 文件发送（功能需求第3条：发送文件）
+@app.post("/api/messages/{mid}/send-file")
+async def send_file(mid: str, file: UploadFile = File(...)):
+    """统一入口向指定平台发送文件。钉钉走机器人媒体上传+sampleFile 真实发送；
+    微信无 API，走 RPA 通道（模拟）。状态流转与文本回复一致。"""
+    row = db.query("SELECT * FROM messages WHERE id=?", (mid,))
+    if not row:
+        raise HTTPException(404, "消息不存在")
+    msg = db.msg_to_dict(row[0])
+    content = await file.read()
+    filename = file.filename or "file.bin"
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(422, "文件超过 20MB（钉钉机器人媒体上传上限）")
+
+    now = time.strftime("%H:%M")
+    if msg["platform"] == "dingtalk":
+        conv_id = msg.get("convId") or msg.get("conv_id")
+        if not conv_id:
+            result_ok, channel, reason = False, "api", "该消息无钉钉会话ID，无法真实回发文件"
+        else:
+            from . import dingtalk_stream_connector as dt
+            up = await dt.upload_media(filename, content)
+            if up["ok"]:
+                sent = await dt.send_file(conv_id, up["mediaId"], filename)
+                result_ok, channel = sent["ok"], "api"
+                reason = sent.get("reason", "")
+            else:
+                result_ok, channel, reason = False, "api", up["reason"]
+    else:
+        # 微信：RPA 通道（个人号无 API，模拟粘贴文件）
+        r = await wechat_rpa.send(msg.get("chat") or msg["sender"],
+                                  f"（文件：{filename}）")
+        result_ok, channel, reason = bool(r.ok), "rpa", r.reason
+
+    if result_ok:
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+                   " VALUES(?,?,?,?,?,?)",
+                   (mid, "me", f"📎 [文件] {filename}", now, "synced", channel))
+        db.execute("UPDATE messages SET status='replied', unread=0 WHERE id=?", (mid,))
+        db.add_trace(mid, "已回复", f"{channel} 通道发送文件成功：{filename}")
+        await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "replied"}})
+        asyncio.get_event_loop().call_later(1.1, lambda: _sync_later(mid, channel))
+        return {"ok": True, "channel": channel, "status": "replied"}
+    else:
+        db.execute("UPDATE messages SET status='failed' WHERE id=?", (mid,))
+        db.add_trace(mid, "发送失败", f"文件发送失败（{channel}）：{reason}")
+        await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "failed"}})
+        return {"ok": False, "channel": channel, "reason": reason or "文件发送失败"}
+
+
+# ------------------------------------------------------------------ 消息记录导出（CSV）
+@app.get("/api/messages/export")
+def export_messages():
+    """导出全部消息记录为 CSV（UTF-8 BOM，Excel 直接打开不乱码）。"""
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["ID", "平台", "发送人", "会话", "时间", "分组", "类型", "内容", "状态"])
+    rows = db.query("SELECT * FROM messages ORDER BY created_at")
+    for r in rows:
+        m = db.msg_to_dict(r)
+        w.writerow([m["id"], m["platform"], m["sender"], m.get("chat", ""),
+                    m["time"], m["day"], m["type"], m["content"].replace("\n", " "),
+                    m["status"]])
+    data = "\ufeff" + buf.getvalue()
+    return Response(
+        content=data.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=messages_export.csv"})
 
 
 def _sync_later(mid: str, channel: str):
