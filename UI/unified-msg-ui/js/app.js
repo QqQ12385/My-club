@@ -125,9 +125,13 @@ function init() {
     };
   });
 
-  // 顶栏入口：个人资料 / 应用连接 / 导出记录
+  // 顶栏入口：联系人 / 个人资料 / 应用连接 / 导出记录
+  const contactsBtn = $("contactsBtn");
+  if (contactsBtn) contactsBtn.onclick = () => openView("contacts");
   $("profileBtn").onclick = () => openView("profile");
   $("appsBtn").onclick = () => openView("apps");
+  const arBtn = $("autoReplyBtn");
+  if (arBtn) arBtn.onclick = toggleAutoreply;
   const exportBtn = $("exportBtn");
   if (exportBtn) exportBtn.onclick = () => {
     window.open("/api/messages/export", "_blank");
@@ -149,6 +153,8 @@ function init() {
   });
 
   renderAll();
+  refreshContactCount();
+  refreshAutoreplyState();   // 拉取 AI 自动回复开关状态
   initLogin();       // 登录页：未记住登录时挡住主界面
   connectWebSocket();
 }

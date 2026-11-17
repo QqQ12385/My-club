@@ -1,11 +1,12 @@
-/* ===== views.js — 全屏视图层：个人资料 / 应用连接 =====
-   职责：两个设置类页面的渲染与交互（不碰消息列表与会话面板）
+/* ===== views.js — 全屏视图层：个人资料 / 应用连接 / 联系人清单 =====
+   职责：设置类页面与联系人页的渲染与交互（不碰消息列表与会话面板）
    数据：state.profile（用户信息）、state.apps（接入状态）、CHANNEL_PLAN（通道）
    ============================================================ */
 
 const VIEW_META = {
-  profile: { title: "个人资料", sub: "账号信息 · 消息偏好 · 我的接入平台" },
-  apps:    { title: "应用连接", sub: "平台接入 · 主备通道 · 连通性检测" },
+  profile:  { title: "个人资料", sub: "账号信息 · 消息偏好 · 我的接入平台" },
+  apps:     { title: "应用连接", sub: "平台接入 · 主备通道 · 连通性检测" },
+  contacts: { title: "联系人清单", sub: "朋友清单 · 按平台聚合 · 点击查看消息并发送" },
 };
 
 /* ---------- 打开 / 关闭 ---------- */
@@ -17,12 +18,14 @@ function openView(name) {
   $("viewSub").textContent = VIEW_META[name].sub;
   $("viewProfile").hidden = name !== "profile";
   $("viewApps").hidden = name !== "apps";
+  $("viewContacts").hidden = name !== "contacts";
 
   $("viewLayer").hidden = false;
   document.body.classList.add("view-open");
 
   if (name === "profile") renderProfile();
   if (name === "apps") renderApps();
+  if (name === "contacts") renderContacts();
   $("viewLayer").querySelector(".view-scroll").scrollTop = 0;
 }
 
@@ -299,9 +302,87 @@ function renderApps() {
     </div>`;
 }
 
+/* ---------- 联系人清单（朋友清单）----------
+   按平台+发送人聚合会话：头像 / 平台 / 会话名 / 最近一条 / 未读数 / 消息数。
+   点击任一联系人 → 关闭视图 → 直接打开与 TA 的会话并聚焦输入框。 */
+function renderContacts() {
+  const map = new Map();
+  state.messages.forEach(m => {
+    const key = `${m.platform}|${m.sender}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        key, platform: m.platform, sender: m.sender,
+        chat: m.chat || "", lastTime: m.time, lastText: m.content,
+        unread: 0, count: 0,
+        msgIds: [],
+      });
+    }
+    const c = map.get(key);
+    c.count += 1;
+    c.msgIds.push(m.id);
+    if (isAlertUnread(m)) c.unread += 1;
+    // 最近一条以列表顺序为准（state.messages 已按时间倒序）
+  });
+  const list = [...map.values()].sort((a, b) => b.count - a.count);
+
+  const connCount = new Set([...map.keys()].map(k => k.split("|")[0])).size;
+  const totalUnread = list.reduce((s, c) => s + c.unread, 0);
+
+  const card = (c) => {
+    const p = PLATFORMS[c.platform];
+    const m0 = state.messages.find(m => m.id === c.msgIds[0]);
+    return `
+      <div class="app-card contact-card" data-open-msg="${c.msgIds[0]}">
+        <div class="ac-head">
+          <span class="ac-logo">${getAvatarText(c.sender)}</span>
+          <div class="ac-name">
+            <b>${c.sender}</b>
+            <span>${c.chat || p.name}</span>
+          </div>
+          <span class="ac-state on"><i></i>${p.name}</span>
+        </div>
+        <div class="contact-last">
+          <span class="contact-last-text">${c.lastText}</span>
+          <span class="contact-last-time">${c.lastTime}</span>
+        </div>
+        <div class="ac-actions" style="border:none;padding-top:6px;">
+          <button class="primary" data-open-msg="${c.msgIds[0]}">查看消息 · 发送回复</button>
+          ${c.unread ? `<span class="contact-unread">${c.unread} 未读</span>` : `<span class="contact-unread zero">已读</span>`}
+          <span class="contact-unread zero">${c.count} 条消息</span>
+        </div>
+      </div>`;
+  };
+
+  $("viewContacts").innerHTML = `
+    <div class="apps-summary">
+      <div class="as-item"><b>${list.length}</b><i>联系人 / 会话对象</i></div>
+      <div class="as-item"><b>${connCount}<span>/${state.apps.length}</span></b><i>涉及平台</i></div>
+      <div class="as-item"><b>${totalUnread}</b><i>未读</i></div>
+      <div class="as-item"><b>${state.messages.length}</b><i>累计消息</i></div>
+    </div>
+    <div class="apps-grid">
+      ${list.length ? list.map(card).join("") : `<div class="v-card"><div class="v-card-title">暂无联系人</div><p class="v-note">收到平台消息后会自动聚合成联系人卡片。</p></div>`}
+    </div>
+    <p class="v-note" style="margin-top:14px;">
+      联系人由各平台消息自动聚合（发送人 + 会话），体现连接器的统一数据模型：
+      无论钉钉、微信，联系人与消息都是同一种内部格式，查看与回复操作完全一致。
+    </p>`;
+}
+
 /* ---------- 事件（容器级委托，渲染重建后依然有效）---------- */
 function initViewEvents() {
   $("viewBack").onclick = closeView;
+
+  // 联系人清单：点击卡片 → 关闭视图 → 打开与该联系人的会话
+  $("viewContacts").addEventListener("click", (e) => {
+    const go = e.target.closest("[data-open-msg]");
+    if (!go) return;
+    const mid = go.dataset.openMsg;
+    closeView();
+    openChat(mid);
+    const input = $("chatInput");
+    if (input) input.focus();
+  });
 
   // 个人资料：偏好开关 / 通道偏好 / 跳转连接页 / 退出
   $("viewProfile").addEventListener("click", (e) => {

@@ -486,6 +486,62 @@ class ClassifyReq(BaseModel):
     content: str
 
 
+# ---------- AI 自动回复（老师点评新增）----------
+def _get_setting(key: str, default: str = "") -> str:
+    rows = db.query("SELECT value FROM settings WHERE key=?", (key,))
+    return rows[0]["value"] if rows else default
+
+
+def _set_setting(key: str, value: str):
+    db.execute("INSERT INTO settings(key,value) VALUES(?,?) "
+               "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+
+@app.get("/api/ai/autoreply")
+def get_autoreply():
+    return {"enabled": _get_setting("autoreply", "0") == "1"}
+
+
+class AutoReplyReq(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/ai/autoreply")
+async def set_autoreply(req: AutoReplyReq):
+    """AI 自动回复开关：开启后新消息进来由 AI 生成回复并经发送路由自动发出。"""
+    _set_setting("autoreply", "1" if req.enabled else "0")
+    await hub.broadcast({"type": "autoreply_update", "data": {"enabled": req.enabled}})
+    return {"ok": True, "enabled": req.enabled}
+
+
+async def _auto_reply(mid: str, content: str):
+    """自动回复：AI 生成回复 → 走发送路由真实发出 → 状态回流。"""
+    try:
+        rows = db.query("SELECT from_side, text FROM thread WHERE msg_id=? ORDER BY id", (mid,))
+        ctx = [{"from": r["from_side"], "text": r["text"]} for r in rows] or \
+              [{"from": "them", "text": content}]
+        replies = await suggest_reply(ctx)
+        text = (replies or ["收到，稍后回复你"])[0]
+        row = db.query("SELECT * FROM messages WHERE id=?", (mid,))
+        if not row:
+            return
+        msg = db.msg_to_dict(row[0])
+        result: SendResult = await route_reply(msg, f"[AI自动回复] {text}", None, False)
+        now = time.strftime("%H:%M")
+        if result.ok:
+            db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+                       " VALUES(?,?,?,?,?,?)",
+                       (mid, "me", f"[AI自动回复] {text}", now, "synced", result.channel))
+            db.execute("UPDATE messages SET status='replied', unread=0 WHERE id=?", (mid,))
+            db.add_trace(mid, "AI自动回复", f"{result.channel} 通道自动发送：{text}")
+            await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "replied"}})
+            asyncio.get_event_loop().call_later(1.1, lambda: _sync_later(mid, result.channel))
+        else:
+            db.add_trace(mid, "AI自动回复失败", f"{result.channel}：{result.reason}")
+    except Exception as e:
+        logging.getLogger("autoreply").exception("AI 自动回复异常: %s", e)
+
+
 @app.post("/api/ai/classify")
 async def ai_classify(req: ClassifyReq):
     return await classify(req.content)
@@ -558,6 +614,10 @@ async def _ingest(raw: dict) -> dict:
                ("todo" if cls["type"] == "todo" else cls["type"], result["id"]))
     await hub.broadcast({"type": "new_message", "data": result["message"]})
     await hub.broadcast({"type": "status_update", "data": {"id": result["id"], "status": "received"}})
+    # AI 自动回复：开关开启时，新消息进来 AI 生成回复并经发送路由自动发出
+    if _get_setting("autoreply", "0") == "1":
+        loop = asyncio.get_event_loop()
+        loop.create_task(_auto_reply(result["id"], raw["content"]))
     return {"ok": True, "duplicated": False, "id": result["id"], "classify": cls}
 
 

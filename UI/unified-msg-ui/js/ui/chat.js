@@ -331,6 +331,60 @@ async function handleFileSend(file) {
   }
 }
 
+/* ---------- AI 自动回复 ----------
+   开启后新消息进来由 AI 生成回复并经发送路由自动发到对应平台（后端真实执行） */
+async function toggleAutoreply() {
+  try {
+    // 先查当前状态再取反（按钮点击时调用）
+    const cur = await fetch(`${API_BASE}/ai/autoreply`, {
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+    }).then(r => r.json());
+    const resp = await fetch(`${API_BASE}/ai/autoreply`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+      },
+      body: JSON.stringify({ enabled: !cur.enabled }),
+    }).then(r => r.json());
+    state.autoreplyOn = !!resp.enabled;
+    renderAutoReplyBtn();
+    toast(state.autoreplyOn
+      ? "AI 自动回复已开启：新消息将由 AI 自动回复"
+      : "AI 自动回复已关闭");
+  } catch (e) {
+    toast("后端不可达，无法切换自动回复");
+  }
+}
+
+async function refreshAutoreplyState() {
+  try {
+    const cur = await fetch(`${API_BASE}/ai/autoreply`, {
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+    }).then(r => r.json());
+    state.autoreplyOn = !!cur.enabled;
+    renderAutoReplyBtn();
+  } catch (e) { /* 后端未启动时静默 */ }
+}
+
+function renderAutoReplyBtn() {
+  const btn = $("autoReplyBtn");
+  if (!btn) return;
+  btn.classList.toggle("on", !!state.autoreplyOn);
+  btn.title = state.autoreplyOn
+    ? "AI 自动回复已开启（点击关闭）"
+    : "AI 自动回复：开启后新消息由 AI 自动生成并发送回复";
+}
+
+/* ---------- 联系人角标 ---------- */
+function refreshContactCount() {
+  const el = $("contactCount");
+  if (!el) return;
+  const seen = new Set();
+  state.messages.forEach(m => seen.add(`${m.platform}|${m.sender}`));
+  el.textContent = seen.size;
+}
+
 /* ---------- 格式转换预览（折叠） ---------- */
 function updateConvPreview(text) {
   const msg = state.messages.find(m => m.id === state.currentMsgId);

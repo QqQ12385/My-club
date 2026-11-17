@@ -57,6 +57,10 @@ def init_db():
                 detail TEXT NOT NULL,
                 ts REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
             CREATE TABLE IF NOT EXISTS apps (
                 key TEXT PRIMARY KEY,
                 connected INTEGER DEFAULT 0,

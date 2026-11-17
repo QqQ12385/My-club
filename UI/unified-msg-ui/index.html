@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>统一消息中心 — 多平台连接器</title>
   <!-- 样式按模块拆分：base(变量/基础) → layout(骨架) → components(通用组件) → chat(会话面板) -->
-  <link rel="stylesheet" href="css/base.css?v=20261114b">
-  <link rel="stylesheet" href="css/layout.css?v=20261114b">
-  <link rel="stylesheet" href="css/components.css?v=20261114b">
-  <link rel="stylesheet" href="css/chat.css?v=20261114b">
-  <link rel="stylesheet" href="css/views.css?v=20261114b">
-  <link rel="stylesheet" href="css/login.css?v=20261114b">
+  <link rel="stylesheet" href="css/base.css?v=20261117a">
+  <link rel="stylesheet" href="css/layout.css?v=20261117a">
+  <link rel="stylesheet" href="css/components.css?v=20261117a">
+  <link rel="stylesheet" href="css/chat.css?v=20261117a">
+  <link rel="stylesheet" href="css/views.css?v=20261117a">
+  <link rel="stylesheet" href="css/login.css?v=20261117a">
 </head>
 <body>
 
@@ -114,6 +114,18 @@
     </div>
 
     <div class="topbar-right">
+      <!-- 联系人清单入口：按平台聚合所有会话对象 -->
+      <button class="top-action" id="contactsBtn" title="查看朋友清单（联系人）">
+        <svg viewBox="0 0 24 24" class="ta-ic">
+          <circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6S13.9 16 14.5 19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          <circle cx="16.5" cy="9.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M15.5 14.2c2.4.1 4.3 1.4 4.9 4.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        联系人
+        <span class="ta-count" id="contactCount">0</span>
+      </button>
+
       <!-- 应用连接入口：显示已连接平台数，点击进入连接管理页 -->
       <button class="top-action" id="appsBtn" title="管理平台接入与通道">
         <svg viewBox="0 0 24 24" class="ta-ic">
@@ -326,6 +338,9 @@
             <button class="tool-btn" data-tool="voice" title="语音输入">
               <svg viewBox="0 0 24 24"><rect x="9" y="4" width="6" height="10" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
+            <button class="tool-btn fault-btn" id="autoReplyBtn" title="AI 自动回复：开启后新消息由 AI 自动生成并发送回复">
+              <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 9.5h8M8 12.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 17l-1.5 3M15 17l1.5 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
             <button class="tool-btn fault-btn" id="faultBtn" title="故障演练：让下一次发送模拟通道失败，用于演示失败重试">
               <svg viewBox="0 0 24 24"><path d="M12 4.5l8.5 15h-17L12 4.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="12" y1="10" x2="12" y2="14.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="17" r="0.95" fill="currentColor"/></svg>
             </button>
@@ -376,6 +391,9 @@
     <div class="view-scroll">
       <section class="view-body" id="viewProfile" hidden></section>
       <section class="view-body" id="viewApps" hidden></section>
+
+      <!-- 联系人清单（朋友清单） -->
+      <section class="view-body" id="viewContacts" hidden></section>
     </div>
   </div>
 
@@ -396,15 +414,15 @@
 
   <!-- 脚本按模块加载（顺序不可调换）：
        config → mock-data → core(format-adapter → store → api) → ui(render → chat) → app -->
-  <script src="js/config.js?v=20261114b"></script>
-  <script src="js/data/mock-data.js?v=20261114b"></script>
-  <script src="js/core/format-adapter.js?v=20261114b"></script>
-  <script src="js/core/store.js?v=20261114b"></script>
-  <script src="js/core/api.js?v=20261114b"></script>
-  <script src="js/ui/render.js?v=20261114b"></script>
-  <script src="js/ui/chat.js?v=20261114b"></script>
-  <script src="js/ui/views.js?v=20261114b"></script>
-  <script src="js/ui/login.js?v=20261114b"></script>
-  <script src="js/app.js?v=20261114b"></script>
+  <script src="js/config.js?v=20261117a"></script>
+  <script src="js/data/mock-data.js?v=20261117a"></script>
+  <script src="js/core/format-adapter.js?v=20261117a"></script>
+  <script src="js/core/store.js?v=20261117a"></script>
+  <script src="js/core/api.js?v=20261117a"></script>
+  <script src="js/ui/render.js?v=20261117a"></script>
+  <script src="js/ui/chat.js?v=20261117a"></script>
+  <script src="js/ui/views.js?v=20261117a"></script>
+  <script src="js/ui/login.js?v=20261117a"></script>
+  <script src="js/app.js?v=20261117a"></script>
 </body>
 </html>
