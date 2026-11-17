@@ -151,7 +151,7 @@ def _cleanup_demo_messages():
         db.execute("DELETE FROM traces WHERE msg_id=?", (mid,))
         db.execute("DELETE FROM messages WHERE id=?", (mid,))
     if demo_ids:
-        log.info("已清理 %s 条演示种子消息", len(demo_ids))
+        logging.getLogger("uvicorn.error").info("已清理 %s 条演示种子消息", len(demo_ids))
 
 
 def seed_demo_messages():
