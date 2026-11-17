@@ -169,6 +169,42 @@ function renderProfile() {
       <div class="v-card-title">最近操作</div>
       <div class="pf-logs">${actionsHtml}</div>
     </div>`;
+
+  // 成员管理（仅管理员）：列出全部账号，可切换角色
+  if (p.role === "系统管理员") {
+    loadMembersPanel();
+  }
+}
+
+/* 成员管理面板：管理员查看所有账号并调整角色 */
+async function loadMembersPanel() {
+  const host = $("viewProfile");
+  // 避免重复插入
+  if (host.querySelector("#membersCard")) host.querySelector("#membersCard").remove();
+  const card = document.createElement("div");
+  card.className = "v-card";
+  card.id = "membersCard";
+  card.innerHTML = `<div class="v-card-title">成员管理</div><div class="pf-rows" id="memberRows">加载中…</div>`;
+  host.appendChild(card);
+  try {
+    const resp = await fetch(`${API_BASE}/users`, {
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+    });
+    if (!resp.ok) throw new Error();
+    const users = await resp.json();
+    $("memberRows").innerHTML = users.map(u => `
+      <div class="pf-row member-row">
+        <span>${u.name} <small>（${u.account}）</small></span>
+        <b>
+          ${u.role === "admin" ? "系统管理员" : "普通用户"}
+          <button class="v-link member-role-btn" data-account="${u.account}" data-to="${u.role === "admin" ? "user" : "admin"}">
+            设为${u.role === "admin" ? "普通用户" : "管理员"}
+          </button>
+        </b>
+      </div>`).join("");
+  } catch (e) {
+    $("memberRows").innerHTML = `<div class="pf-row"><span>成员列表加载失败（需要管理员登录）</span></div>`;
+  }
 }
 
 /* 保存基本信息编辑
@@ -636,7 +672,7 @@ async function deleteFriend(id, name) {
   });
 
   // 个人资料：偏好开关 / 通道偏好 / 跳转连接页 / 退出
-  $("viewProfile").addEventListener("click", (e) => {
+  $("viewProfile").addEventListener("click", async (e) => {
     const sw = e.target.closest("[data-pref]");
     if (sw) {
       const key = sw.dataset.pref;
@@ -672,6 +708,29 @@ async function deleteFriend(id, name) {
     if (e.target.closest("#pfLogout")) {
       closeView();
       logout();
+      return;
+    }
+
+    // 成员管理：切换角色
+    const roleBtn = e.target.closest(".member-role-btn");
+    if (roleBtn) {
+      const acc = roleBtn.dataset.account, to = roleBtn.dataset.to;
+      if (!confirm(`将该成员角色改为「${to === "admin" ? "系统管理员" : "普通用户"}」？`)) return;
+      try {
+        const resp = await fetch(`${API_BASE}/users/${encodeURIComponent(acc)}/role`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+          },
+          body: JSON.stringify({ role: to }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) { toast("设置失败：" + (data.detail || "未知错误")); return; }
+        toast(`已将 ${acc} 设为${to === "admin" ? "系统管理员" : "普通用户"}`);
+        loadMembersPanel();
+      } catch (err) { toast("设置失败：后端不可达"); }
+      return;
     }
   });
 

@@ -87,14 +87,21 @@ def _on_dingtalk_message(incoming) -> None:
 
 def _on_dingtalk_recall(data: dict) -> None:
     """钉钉撤回事件回调：把对应消息在本地标记为「已撤回」并 WS 推送。
-    事件字段以钉钉实际推送为准，兼容多种常见字段名。"""
+    事件字段以钉钉实际推送为准，兼容多种常见字段名（messageId/msgId/openMessageId）。"""
     try:
-        msg_id = (data.get("messageId") or data.get("message_id")
-                  or (data.get("recallInfo") or {}).get("messageId") or "")
+        info = data.get("recallInfo") or data.get("RecallInfo") or {}
+        msg_id = (data.get("messageId") or data.get("message_id") or data.get("msgId")
+                  or info.get("messageId") or info.get("msgId") or "")
         if not msg_id:
+            log_dt.warning("钉钉撤回事件缺少消息ID字段，原始数据: %s", data)
             return
-        row = db.query("SELECT id FROM messages WHERE msg_key=?", (str(msg_id),))
+        msg_id = str(msg_id)
+        row = db.query("SELECT id FROM messages WHERE msg_key=?", (msg_id,))
         if not row:
+            # 钉钉撤回事件的 messageId 可能带前缀（如 cid 前的完整编码），宽松匹配一次
+            row = db.query("SELECT id FROM messages WHERE msg_key LIKE ?", ("%" + msg_id[-32:],))
+        if not row:
+            log_dt.info("撤回的消息不在本地库中（可能非机器人可见消息）: %s", msg_id)
             return
         mid = row[0]["id"]
         db.execute("UPDATE messages SET type='recall', content=?, unread=0 WHERE id=?",
@@ -370,6 +377,53 @@ def me(authorization: str | None = Header(None)):
             if u:
                 return _user_to_profile(u)
     return get_profile()
+
+
+# ---------------- 成员管理（仅管理员） ----------------
+def _current_user(authorization: str | None) -> dict | None:
+    """返回当前登录用户的完整记录（区别于 _current_account：管理员也有记录）。"""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        if token in tokens:
+            return db.get_user_by_account(tokens[token])
+    return None
+
+
+def _require_admin(authorization: str | None) -> dict:
+    u = _current_user(authorization)
+    if not u or u["role"] != "admin":
+        raise HTTPException(403, "需要管理员权限")
+    return u
+
+
+@app.get("/api/users")
+def list_users(authorization: str | None = Header(None)):
+    _require_admin(authorization)
+    rows = db.query("SELECT id, account, name, role, created_at FROM users ORDER BY id")
+    return [{"id": r["id"], "account": r["account"], "name": r["name"],
+             "role": r["role"],
+             "createdAt": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["created_at"]))}
+            for r in rows]
+
+
+class RoleReq(BaseModel):
+    role: str  # admin | user
+
+
+@app.patch("/api/users/{account}/role")
+def set_user_role(account: str, req: RoleReq, authorization: str | None = Header(None)):
+    """管理员设置成员角色（admin=系统管理员 / user=普通用户）。不能改自己。"""
+    me_u = _require_admin(authorization)
+    if me_u["account"] == account:
+        raise HTTPException(422, "不能修改自己的角色")
+    if req.role not in ("admin", "user"):
+        raise HTTPException(422, "角色只能是 admin 或 user")
+    u = db.get_user_by_account(account)
+    if not u:
+        raise HTTPException(404, "用户不存在")
+    db.execute("UPDATE users SET role=? WHERE account=?", (req.role, account))
+    db.add_op(f"设置成员 {u['name']}({account}) 角色为 {req.role}（by {me_u['name']}）")
+    return {"ok": True, "account": account, "role": req.role}
 
 
 class ProfilePatch(BaseModel):
