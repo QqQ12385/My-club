@@ -185,6 +185,9 @@ function renderThread() {
         : t.sendStatus === "synced" ? `已同步到${PLATFORMS[msg.platform].name}`
         : "";
       const target = msg.chat ? `回给 ${msg.sender} · ${msg.chat}` : `回给 ${msg.sender}`;
+      // 微信式语义：只能撤回「自己发的」消息（别人发的只有删除）
+      const recallBtn = (t._mid && (t.sendStatus === "synced" || t.sendStatus === "sent"))
+        ? `<button class="bubble-del" data-recall="${idx}" title="撤回这条消息（保留记录，标记为已撤回）">撤回</button>` : "";
       return `
         <div class="bubble-row me">
           <div class="bubble me-bubble ${t.sendStatus === "sending" ? "sending" : ""} ${failed ? "failed" : ""}">
@@ -196,6 +199,7 @@ function renderThread() {
             <div class="bubble-status">
               ${stText ? stText + " · " : ""}${t.time}
               <span class="ch-tag ${ch}" title="经${CHANNELS[ch].name}发送">${CHANNELS[ch].short}</span>
+              ${recallBtn}
               ${delBtn}
             </div>
             ${failed ? `
@@ -211,7 +215,7 @@ function renderThread() {
         <div class="avatar small"><span>${getAvatarText(msg.sender)}</span></div>
         <div class="bubble them-bubble ${t.recalled ? "recalled" : ""}">
           <div class="bubble-text">${t.text}</div>
-          <div class="bubble-status">${t.time} ${delBtn}${t._mid ? `<button class="bubble-del" data-recall="${idx}" title="撤回这条消息（保留记录，标记为已撤回）">撤回</button>` : ""}</div>
+          <div class="bubble-status">${t.time} ${delBtn}</div>
         </div>
       </div>`;
   }).join("");
@@ -268,7 +272,13 @@ async function recallThreadItem(t) {
     });
     const data = await resp.json();
     if (!data.ok) { toast("撤回失败：" + ((data.detail && data.detail[0] && data.detail[0].msg) || "未知错误")); return; }
-    applyRecall(t._mid);
+    // 自己撤回：文案与钉钉侧撤回（applyRecall 的 WS 推送）区分
+    const msg = state.messages.find(m => m.id === t._mid);
+    if (msg) { msg.type = "recall"; msg.content = "（已撤回一条消息）"; }
+    const arr = state.threads[t._mid];
+    if (arr) arr.forEach(x => { x.recalled = true; });
+    renderAll();
+    renderThread();
     toast("已撤回");
   } catch (e) {
     toast("撤回失败：后端不可达");
