@@ -441,8 +441,27 @@ def list_messages(platform: str = "", status: str = "", keyword: str = "",
 @app.get("/api/messages/{mid}/thread")
 def get_thread(mid: str, authorization: str | None = Header(None)):
     rows = db.query("SELECT * FROM thread WHERE msg_id=? ORDER BY id", (mid,))
-    return [{"id": r["id"], "from": r["from_side"], "text": r["text"], "time": r["time"],
-             "sendStatus": r["send_status"], "channel": r["channel"]} for r in rows]
+    out = []
+    for r in rows:
+        item = {"id": r["id"], "from": r["from_side"], "text": r["text"], "time": r["time"],
+                "sendStatus": r["send_status"], "channel": r["channel"]}
+        if r["file_id"]:
+            item["fileId"] = r["file_id"]
+        out.append(item)
+    return out
+
+
+@app.get("/api/files/{fid}")
+def download_file(fid: str):
+    """下载/在线打开统一入口发过的文件（磁盘持久化存储）。"""
+    rows = db.query("SELECT * FROM files WHERE id=?", (fid,))
+    if not rows:
+        raise HTTPException(404, "文件不存在")
+    f = rows[0]
+    p = Path(f["path"])
+    if not p.is_file():
+        raise HTTPException(404, "文件已丢失")
+    return FileResponse(p, filename=f["filename"])
 
 
 @app.delete("/api/thread/{tid}")
@@ -453,6 +472,13 @@ def delete_thread_item(tid: int):
 
 
 def _delete_message_cascade(mid: str):
+    # 磁盘文件一并清理
+    for f in db.query("SELECT path FROM files WHERE msg_id=?", (mid,)):
+        try:
+            Path(f["path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    db.execute("DELETE FROM files WHERE msg_id=?", (mid,))
     db.execute("DELETE FROM thread WHERE msg_id=?", (mid,))
     db.execute("DELETE FROM traces WHERE msg_id=?", (mid,))
     db.execute("DELETE FROM messages WHERE id=?", (mid,))
@@ -631,6 +657,15 @@ async def send_file(mid: str, file: UploadFile = File(...)):
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(422, "文件超过 20MB（钉钉机器人媒体上传上限）")
 
+    # 本地持久化：统一入口留档，网页端可随时下载/打开（下载走 /api/files/{fid}）
+    fid = uuid.uuid4().hex[:12]
+    updir = Path(__file__).resolve().parent / "uploads"
+    updir.mkdir(exist_ok=True)
+    stored = updir / f"{fid}_{filename}"
+    stored.write_bytes(content)
+    db.execute("INSERT INTO files(id, msg_id, filename, size, path, created_at) VALUES(?,?,?,?,?,?)",
+               (fid, mid, filename, len(content), str(stored), time.time()))
+
     now = time.strftime("%H:%M")
     if msg["platform"] == "dingtalk":
         conv_id = msg.get("convId") or msg.get("conv_id")
@@ -652,9 +687,9 @@ async def send_file(mid: str, file: UploadFile = File(...)):
         result_ok, channel, reason = bool(r.ok), "rpa", r.reason
 
     if result_ok:
-        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
-                   " VALUES(?,?,?,?,?,?)",
-                   (mid, "me", f"📎 [文件] {filename}", now, "synced", channel))
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel,file_id)"
+                   " VALUES(?,?,?,?,?,?,?)",
+                   (mid, "me", f"📎 [文件] {filename}", now, "synced", channel, fid))
         db.execute("UPDATE messages SET status='replied', unread=0 WHERE id=?", (mid,))
         db.add_trace(mid, "已回复", f"{channel} 通道发送文件成功：{filename}")
         await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "replied"}})

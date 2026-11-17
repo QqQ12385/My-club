@@ -189,7 +189,9 @@ function renderThread() {
         <div class="bubble-row me">
           <div class="bubble me-bubble ${t.sendStatus === "sending" ? "sending" : ""} ${failed ? "failed" : ""}">
             <div class="bubble-target">→ ${target}</div>
-            <div class="bubble-text">${t.text}</div>
+            <div class="bubble-text">${t.fileId
+              ? `<a class="bubble-file" href="${API_BASE}/files/${t.fileId}" target="_blank" download>${t.text}</a>`
+              : t.text}</div>
             ${failed ? `<div class="bubble-fail">发送失败 · ${t.failReason}</div>` : ""}
             <div class="bubble-status">
               ${stText ? stText + " · " : ""}${t.time}
@@ -470,6 +472,7 @@ async function handleFileSend(file) {
       bubble.sendStatus = "sent";
       msg.status = "replied";
       addTrace(msg.id, "已回复", `文件发送成功：${file.name}`);
+      loadThread(msg.id);   // 重新拉取 thread 拿到 fileId，气泡变为可点击下载
       renderAll();
       toast(`文件「${file.name}」已发送给 ${msg.sender}${msg.chat ? "（" + msg.chat + "）" : ""}`);
       // synced 由 WS 回流；2.5s 兜底

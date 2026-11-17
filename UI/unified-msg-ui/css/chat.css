@@ -347,3 +347,7 @@
   border: 1px solid currentColor; border-radius: 8px; padding: 0 5px; margin-left: 4px;
 }
 .head-btn.danger:hover { color: #c0392b; background: rgba(192, 57, 43, .08); }
+.bubble-file {
+  color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.bubble-file:hover { opacity: .8; }

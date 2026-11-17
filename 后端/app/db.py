@@ -84,6 +84,14 @@ def init_db():
                 owner TEXT NOT NULL DEFAULT 'gary',-- 归属账号
                 created_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS files (
+                id TEXT PRIMARY KEY,               -- 文件ID（下载用）
+                msg_id TEXT NOT NULL,              -- 归属消息
+                filename TEXT NOT NULL,
+                size INTEGER DEFAULT 0,
+                path TEXT NOT NULL,                -- 磁盘存储路径
+                created_at REAL NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 account TEXT UNIQUE NOT NULL,      -- 登录账号（小写）
@@ -106,6 +114,10 @@ def init_db():
         ucols = [r[1] for r in _conn.execute("PRAGMA table_info(users)").fetchall()]
         if "dingtalk_unionid" not in ucols:
             _conn.execute("ALTER TABLE users ADD COLUMN dingtalk_unionid TEXT")
+        # 迁移：thread 补 file_id 列（文件消息可下载）
+        tcols = [r[1] for r in _conn.execute("PRAGMA table_info(thread)").fetchall()]
+        if "file_id" not in tcols:
+            _conn.execute("ALTER TABLE thread ADD COLUMN file_id TEXT")
 
 
 def query(sql: str, args: tuple = ()) -> list:
