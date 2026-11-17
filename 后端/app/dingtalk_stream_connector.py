@@ -53,6 +53,13 @@ def _init_sdk():
     credential = Credential(_APP_KEY, _APP_SECRET)
     client = DingTalkStreamClient(credential)
     client.register_callback_handler('/v1.0/im/bot/messages/get', handler)
+    # 撤回事件订阅（群聊撤回机器人可见消息时推送；部分企业应用需在开放平台
+    # 「事件订阅」里勾选「群聊消息撤回」后才会推送）
+    try:
+        recall_handler = _build_recall_handler(AckMessage)
+        client.register_callback_handler('/v1.0/im/bot/messages/recall', recall_handler)
+    except Exception as e:
+        log.warning("注册撤回事件处理器失败（不影响收发）: %s", e)
     _stream_client = client
     _client_ready = True
     return client
@@ -78,13 +85,37 @@ def _build_handler(ChatbotHandler, ChatbotMessage, AckMessage):
     return _Handler()
 
 
+def _build_recall_handler(AckMessage):
+    """撤回事件回调 handler（事件订阅，裸 dict，不是 ChatbotMessage）。"""
+    class _RecallHandler:
+        async def process(self, message):
+            try:
+                data = message.data if hasattr(message, "data") else message
+                if isinstance(data, str):
+                    data = json.loads(data)
+                log.info("收到钉钉撤回事件: %s", data)
+                if _on_recall and isinstance(data, dict):
+                    _on_recall(data)
+            except Exception as e:
+                log.exception("处理钉钉撤回事件异常: %s", e)
+            return AckMessage.STATUS_OK, 'OK'
+
+    return _RecallHandler()
+
+
 # 外部注入：收到钉钉消息时的处理函数（main.py 在启动时设置）
 _on_message = None
+_on_recall = None
 
 
 def set_message_handler(fn):
     global _on_message
     _on_message = fn
+
+
+def set_recall_handler(fn):
+    global _on_recall
+    _on_recall = fn
 
 
 def start_stream_forever():

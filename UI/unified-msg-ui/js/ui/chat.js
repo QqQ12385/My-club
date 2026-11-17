@@ -209,9 +209,9 @@ function renderThread() {
     return `
       <div class="bubble-row them">
         <div class="avatar small"><span>${getAvatarText(msg.sender)}</span></div>
-        <div class="bubble them-bubble">
+        <div class="bubble them-bubble ${t.recalled ? "recalled" : ""}">
           <div class="bubble-text">${t.text}</div>
-          <div class="bubble-status">${t.time} ${delBtn}</div>
+          <div class="bubble-status">${t.time} ${delBtn}${t._mid ? `<button class="bubble-del" data-recall="${idx}" title="撤回这条消息（保留记录，标记为已撤回）">撤回</button>` : ""}</div>
         </div>
       </div>`;
   }).join("");
@@ -226,6 +226,10 @@ function renderThread() {
   // 删除单条会话记录
   $("chatThread").querySelectorAll("[data-del]").forEach(btn => {
     btn.onclick = () => deleteThreadItem(thread[Number(btn.dataset.del)]);
+  });
+  // 撤回单条消息（标记为已撤回，保留痕迹）
+  $("chatThread").querySelectorAll("[data-recall]").forEach(btn => {
+    btn.onclick = () => recallThreadItem(thread[Number(btn.dataset.recall)]);
   });
 
   const box = $("chatThread");
@@ -250,6 +254,39 @@ async function deleteThreadItem(t) {
   renderThread();
   renderAll();
   toast("已删除该条记录");
+}
+
+/* ---------- 撤回单条消息（气泡级）----------
+   调后端 /recall，把消息标记为「已撤回」（记录保留，微信/钉钉同款体验）。 */
+async function recallThreadItem(t) {
+  if (!t || !t._mid) return;
+  if (!confirm("撤回这条消息？记录会保留并标记为「已撤回」。")) return;
+  try {
+    const resp = await fetch(`${API_BASE}/messages/${encodeURIComponent(t._mid)}/recall`, {
+      method: "POST",
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+    });
+    const data = await resp.json();
+    if (!data.ok) { toast("撤回失败：" + ((data.detail && data.detail[0] && data.detail[0].msg) || "未知错误")); return; }
+    applyRecall(t._mid);
+    toast("已撤回");
+  } catch (e) {
+    toast("撤回失败：后端不可达");
+  }
+}
+
+/* 应用撤回状态（WS 推送 / 本地撤回共用）：消息标记为 recall 类型 */
+function applyRecall(mid) {
+  const msg = state.messages.find(m => m.id === mid);
+  if (!msg) return;
+  msg.type = "recall";
+  msg.content = "（对方在钉钉撤回了一条消息）";
+  const arr = state.threads[mid];
+  if (arr) arr.forEach(t => { t.recalled = true; });
+  renderAll();
+  if (state.currentContactKey && getContactThread(state.currentContactKey).some(t => t._mid === mid)) {
+    renderThread();
+  }
 }
 
 /* ---------- 删除整个会话（当前联系人的全部消息）---------- */

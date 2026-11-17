@@ -85,10 +85,36 @@ def _on_dingtalk_message(incoming) -> None:
         log_dt.exception("钉钉消息入站处理异常: %s", e)
 
 
+def _on_dingtalk_recall(data: dict) -> None:
+    """钉钉撤回事件回调：把对应消息在本地标记为「已撤回」并 WS 推送。
+    事件字段以钉钉实际推送为准，兼容多种常见字段名。"""
+    try:
+        msg_id = (data.get("messageId") or data.get("message_id")
+                  or (data.get("recallInfo") or {}).get("messageId") or "")
+        if not msg_id:
+            return
+        row = db.query("SELECT id FROM messages WHERE msg_key=?", (str(msg_id),))
+        if not row:
+            return
+        mid = row[0]["id"]
+        db.execute("UPDATE messages SET type='recall', content=?, unread=0 WHERE id=?",
+                   ("（对方在钉钉撤回了一条消息）", mid))
+        db.add_trace(mid, "已撤回", "发送方在钉钉撤回了该消息，本地同步标记")
+        try:
+            asyncio.run_coroutine_threadsafe(
+                hub.broadcast({"type": "msg_recalled", "data": {"id": mid}}), _main_loop)
+        except RuntimeError:
+            pass
+        log_dt.info("钉钉撤回已同步：%s", mid)
+    except Exception as e:
+        log_dt.exception("钉钉撤回事件处理异常: %s", e)
+
+
 def _start_dingtalk_stream():
     if not dt_stream.is_configured():
         return
     dt_stream.set_message_handler(_on_dingtalk_message)
+    dt_stream.set_recall_handler(_on_dingtalk_recall)
     dt_stream.start_in_background()
 
 
@@ -111,9 +137,21 @@ def startup():
     # 个人资料种子
     if not db.query("SELECT 1 FROM profile WHERE id=1"):
         db.execute("INSERT INTO profile(id, data) VALUES(1, ?)", (json.dumps(PROFILE_DEFAULT, ensure_ascii=False),))
-    # 演示种子消息（与前端演示模式一致）
-    if not db.query("SELECT 1 FROM messages LIMIT 1"):
-        seed_demo_messages()
+    # 演示种子消息：初赛评审反馈改为纯真实数据——不再注入，且清理老库残留
+    _cleanup_demo_messages()
+
+
+def _cleanup_demo_messages():
+    """清理初始化注入的演示消息（m001~m009 及其会话/流转记录），保证导出全为真实数据。"""
+    demo_ids = [r[0] for r in db.query(
+        "SELECT id FROM messages WHERE id IN ('m001','m002','m003','m004','m005',"
+        "'m006','m007','m008','m009')")]
+    for mid in demo_ids:
+        db.execute("DELETE FROM thread WHERE msg_id=?", (mid,))
+        db.execute("DELETE FROM traces WHERE msg_id=?", (mid,))
+        db.execute("DELETE FROM messages WHERE id=?", (mid,))
+    if demo_ids:
+        log.info("已清理 %s 条演示种子消息", len(demo_ids))
 
 
 def seed_demo_messages():
@@ -488,6 +526,26 @@ def _delete_message_cascade(mid: str):
 def delete_message(mid: str):
     """删除单条消息（连同会话上下文与状态流转记录）。"""
     _delete_message_cascade(mid)
+    return {"ok": True}
+
+
+@app.post("/api/messages/{mid}/recall")
+def recall_message(mid: str, authorization: str | None = Header(None)):
+    """撤回消息：本地记录标记为「已撤回」（不删除，保留痕迹，微信/钉钉撤回同款体验）。
+
+    注意：机器人无法替别人撤回其在钉钉里发的消息（平台限制），此撤回只作用于
+    本平台的记录展示；钉钉侧撤回会通过 Stream 撤回事件自动同步到这里。"""
+    row = db.query("SELECT * FROM messages WHERE id=?", (mid,))
+    if not row:
+        raise HTTPException(404, "消息不存在")
+    m = db.msg_to_dict(row[0])
+    if m["type"] == "recall":
+        return {"ok": True, "already": True}
+    db.execute("UPDATE messages SET type='recall', content=?, unread=0 WHERE id=?",
+               ("（已撤回一条消息）", mid))
+    db.add_trace(mid, "已撤回", "在本平台撤回，记录保留（时间线可见「已撤回」）")
+    owner = _current_account(authorization)
+    db.add_op(f"撤回消息 {mid}（{m['sender']}）" + (f" by {owner}" if owner else ""))
     return {"ok": True}
 
 

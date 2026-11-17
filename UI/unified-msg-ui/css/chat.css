@@ -347,6 +347,12 @@
   border: 1px solid currentColor; border-radius: 8px; padding: 0 5px; margin-left: 4px;
 }
 .head-btn.danger:hover { color: #c0392b; background: rgba(192, 57, 43, .08); }
+
+/* 撤回消息的灰色斜体样式（v20261117g） */
+.bubble.them-bubble.recalled .bubble-text {
+  color: var(--muted, #999); font-style: italic;
+}
+.bubble-row:has(.recalled) { opacity: .75; }
 .bubble-file {
   color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
