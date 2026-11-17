@@ -129,9 +129,16 @@ async function loadBackendData() {
       id: m.id, platform: m.platform, sender: m.sender, chat: m.chat || m.platform,
       time: m.time, day: m.day, type: m.type, content: m.content, status: m.status,
       unread: !!m.unread, pinned: !!m.pinned, muted: !!m.muted,
+      convId: m.convId || "",            // 钉钉会话ID（联系人主动发消息真实回发用）
     }));
     state.messages = msgs;
     state.msgSeq = msgs.length + 100;
+
+    // 2.5) 好友清单（手动添加的联系人）
+    try {
+      const frResp = await fetch(`${API_BASE}/contacts/list`, { headers });
+      if (frResp.ok) state.friends = await frResp.json();
+    } catch (e) { /* 好友接口失败不阻塞主流程 */ }
 
     // 2) 待办：从后端消息里提取 type=todo 且未完成的消息（后端无独立 todo 表）
     state.todos = msgs.filter(m => m.type === "todo").map(m => ({

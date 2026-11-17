@@ -115,18 +115,17 @@ async def upload_media(filename: str, content: bytes) -> dict:
     token = await _get_token()
     if not token:
         return {"ok": False, "mediaId": "", "reason": "获取钉钉 access_token 失败"}
-    url = "https://api.dingtalk.com/v1.0/robot/media/upload"
+    url = "https://oapi.dingtalk.com/media/upload"
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.post(url,
-                             params={"robotCode": _APP_KEY},
-                             headers={"x-acs-dingtalk-access-token": token},
+                             params={"access_token": token, "type": "file"},
                              files={"media": (filename, content)})
             data = r.json()
-            media_id = data.get("mediaId")
-            if r.status_code != 200 or not media_id:
+            media_id = data.get("media_id") or data.get("mediaId")
+            if r.status_code != 200 or not media_id or data.get("errcode") not in (0, None):
                 return {"ok": False, "mediaId": "",
-                        "reason": f"钉钉媒体上传失败: {data.get('message') or data}"}
+                        "reason": f"钉钉媒体上传失败: {data.get('errmsg') or data}"}
             return {"ok": True, "mediaId": media_id}
     except Exception as e:
         return {"ok": False, "mediaId": "", "reason": f"钉钉媒体上传异常: {e}"}

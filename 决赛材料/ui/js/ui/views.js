@@ -200,7 +200,9 @@ function renderApps() {
   const pending = state.messages.filter(m =>
     m.status === "received" || m.status === "processing" || m.status === "failed").length;
 
-  const cards = state.apps.map(a => {
+  // 防御：只渲染前端已知的平台（后端库若残留已下线平台不至于整页崩掉）
+  const knownApps = state.apps.filter(a => PLATFORMS[a.key]);
+  const cards = knownApps.map(a => {
     const plan = CHANNEL_PLAN[a.key] || { primary: "api", backup: "rpa" };
     return `
       <div class="app-card ${a.connected ? "" : "off"}">
@@ -302,12 +304,8 @@ function renderApps() {
     </div>`;
 }
 
-/* ---------- 联系人清单（朋友清单）----------
-   按平台+发送人聚合会话：头像 / 平台 / 会话名 / 最近一条 / 未读数 / 消息数。
-   每个联系人两个动作：
-     · 查看消息：打开与 TA 的会话（回复历史）
-     · 发消息：直接发起新消息（个体间互发，走真实发送路由 @该人） */
-function renderContacts() {
+/* ---------- 联系人聚合（消息自动聚合 + 手动添加的好友合并）---------- */
+function buildContactList() {
   const map = new Map();
   state.messages.forEach(m => {
     const key = `${m.platform}|${m.sender}`;
@@ -315,21 +313,34 @@ function renderContacts() {
       map.set(key, {
         key, platform: m.platform, sender: m.sender,
         chat: m.chat || "", lastTime: m.time, lastText: m.content,
-        unread: 0, count: 0,
-        msgIds: [], convId: m.convId || "",
+        unread: 0, count: 0, msgIds: [], convId: m.convId || "", friend: false,
       });
     }
     const c = map.get(key);
     c.count += 1;
     c.msgIds.push(m.id);
-    // 优先保留有 conv_id 的那条（真实回发用）
     if (m.convId && !c.convId) c.convId = m.convId;
     if (isAlertUnread(m)) c.unread += 1;
-    // 最近一条以列表顺序为准（state.messages 已按时间倒序）
   });
-  const list = [...map.values()].sort((a, b) => b.count - a.count);
+  // 手动添加的好友：消息里没有也出现在清单里
+  (state.friends || []).forEach(f => {
+    const key = `${f.platform}|${f.name}`;
+    if (!map.has(key)) {
+      map.set(key, { key, platform: f.platform, sender: f.name,
+        chat: f.chat || "", lastTime: "—", lastText: "（暂无消息）",
+        unread: 0, count: 0, msgIds: [], convId: "", friend: true });
+    } else {
+      map.get(key).friend = true;
+    }
+  });
+  return [...map.values()].sort((a, b) => b.count - a.count);
+}
 
-  const connCount = new Set([...map.keys()].map(k => k.split("|")[0])).size;
+/* ---------- 联系人清单（朋友清单，全屏视图）---------- */
+function renderContacts() {
+  const list = buildContactList();
+
+  const connCount = new Set(list.map(c => c.platform)).size;
   const totalUnread = list.reduce((s, c) => s + c.unread, 0);
 
   const card = (c) => {
@@ -339,7 +350,7 @@ function renderContacts() {
         <div class="ac-head">
           <span class="ac-logo">${getAvatarText(c.sender)}</span>
           <div class="ac-name">
-            <b>${c.sender}</b>
+            <b>${c.sender}${c.friend ? ' <em class="friend-badge">好友</em>' : ""}</b>
             <span>${c.chat || p.name}</span>
           </div>
           <span class="ac-state on"><i></i>${p.name}</span>
@@ -351,7 +362,7 @@ function renderContacts() {
         <div class="ac-actions" style="border:none;padding-top:6px;">
           <button class="primary" data-send-contact="${c.sender}"
                   data-platform="${c.platform}" data-chat="${c.chat}" data-conv="${c.convId}">发消息</button>
-          <button data-open-msg="${c.msgIds[0]}">查看消息</button>
+          ${c.msgIds.length ? `<button data-open-msg="${c.msgIds[0]}">查看消息</button>` : ""}
           ${c.unread ? `<span class="contact-unread">${c.unread} 未读</span>` : `<span class="contact-unread zero">已读</span>`}
           <span class="contact-unread zero">${c.count} 条</span>
         </div>
@@ -385,13 +396,17 @@ function openContactSend(target) {
   $("contactSendName").textContent = target.sender;
   $("contactSendPlatform").textContent = PLATFORMS[target.platform].name + (target.chat ? " · " + target.chat : "");
   $("contactSendInput").value = "";
-  $("contactSendLayer").hidden = false;
+  const layer = $("contactSendLayer");
+  layer.hidden = false;
+  layer.classList.add("show");   // CSS 用 .show 控制显示（与 traceModal 一致）
   setTimeout(() => $("contactSendInput").focus(), 80);
 }
 
 function closeContactSend() {
   contactSendTarget = null;
-  $("contactSendLayer").hidden = true;
+  const layer = $("contactSendLayer");
+  layer.classList.remove("show");
+  layer.hidden = true;
 }
 
 async function submitContactSend() {
@@ -430,9 +445,133 @@ async function submitContactSend() {
   }
 }
 
-/* ---------- 事件（容器级委托，渲染重建后依然有效）---------- */
-function initViewEvents() {
+/* ---------- 添加好友弹窗 ---------- */
+function openFriendAdd() {
+  $("friendNameInput").value = "";
+  $("friendChatInput").value = "";
+  $("friendPlatformSelect").value = "dingtalk";
+  const layer = $("friendAddLayer");
+  layer.hidden = false;
+  layer.classList.add("show");
+  setTimeout(() => $("friendNameInput").focus(), 80);
+}
+
+function closeFriendAdd() {
+  const layer = $("friendAddLayer");
+  layer.classList.remove("show");
+  layer.hidden = true;
+}
+
+async function submitFriendAdd() {
+  const name = $("friendNameInput").value.trim();
+  if (!name) { toast("请输入好友名称"); return; }
+  const platform = $("friendPlatformSelect").value;
+  const chat = $("friendChatInput").value.trim();
+  const btn = $("friendAddBtn2");
+  btn.disabled = true;
+  btn.textContent = "添加中…";
+  try {
+    const resp = await fetch(`${API_BASE}/contacts/add`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+      },
+      body: JSON.stringify({ name, platform, chat }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      closeFriendAdd();
+      toast(`已添加好友：${name}`);
+      if (typeof loadBackendData === "function") await loadBackendData();
+      renderContactTabPanel();
+      if (state.view === "contacts") renderContacts();
+    } else {
+      toast("添加失败：" + (data.detail || "未知错误"));
+    }
+  } catch (e) {
+    toast("后端不可达，请确认启动.bat 已运行");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "添 加";
+  }
+}
+
+/* ---------- 消息页「联系人」tab 面板（紧凑列表，微信式）---------- */
+function renderContactTabPanel() {
+  const el = $("contactTabList");
+  if (!el) return;
+  const list = buildContactList();
+
+  // tab 角标
+  const cnt = $("tabContactCount");
+  if (cnt) cnt.textContent = list.length;
+
+  const row = (c) => {
+    const p = PLATFORMS[c.platform];
+    return `
+      <div class="contact-row">
+        <span class="cr-avatar">${getAvatarText(c.sender)}</span>
+        <div class="cr-main">
+          <div class="cr-line1">
+            <b>${c.sender}</b>
+            ${c.friend ? '<em class="friend-badge">好友</em>' : ""}
+            <span class="cr-chat">${c.chat || p.name}</span>
+            <span class="cr-time">${c.lastTime}</span>
+          </div>
+          <div class="cr-line2">
+            <span class="cr-last">${c.lastText}</span>
+            ${c.unread ? `<span class="cr-unread">${c.unread}</span>` : ""}
+          </div>
+          <div class="cr-actions">
+            <button class="primary" data-send-contact="${c.sender}"
+                    data-platform="${c.platform}" data-chat="${c.chat}" data-conv="${c.convId}">发消息</button>
+            ${c.msgIds.length ? `<button data-open-msg="${c.msgIds[0]}">查看消息</button>` : ""}
+          </div>
+        </div>
+      </div>`;
+  };
+
+  el.innerHTML = list.length
+    ? list.map(row).join("")
+    : `<div class="ov-empty">暂无联系人 · 收到平台消息或手动添加好友后显示</div>`;
+}
+
+/* ---------- 事件（容器级委托，渲染重建后依然有效）---------- */function initViewEvents() {
   $("viewBack").onclick = closeView;
+
+  // 添加好友弹窗（消息页联系人 tab 与全屏视图共用）
+  const fab = $("friendAddBtn");
+  if (fab) fab.onclick = openFriendAdd;
+  $("closeFriendAdd").onclick = closeFriendAdd;
+  $("friendAddBtn2").onclick = submitFriendAdd;
+  $("friendNameInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitFriendAdd(); }
+  });
+  $("friendAddLayer").addEventListener("click", (e) => {
+    if (e.target === $("friendAddLayer")) closeFriendAdd();
+  });
+
+  // 消息页联系人 tab：发消息 / 查看消息（与全屏视图同样的事件委托）
+  const ctl = $("contactTabList");
+  if (ctl) ctl.addEventListener("click", (e) => {
+    const send = e.target.closest("[data-send-contact]");
+    if (send) {
+      openContactSend({
+        sender: send.dataset.sendContact,
+        platform: send.dataset.platform,
+        chat: send.dataset.chat,
+        convId: send.dataset.conv,
+      });
+      return;
+    }
+    const go = e.target.closest("[data-open-msg]");
+    if (!go) return;
+    switchTab("messages");
+    openChat(go.dataset.openMsg);
+    const input = $("chatInput");
+    if (input) input.focus();
+  });
 
   // 主动发消息浮层：关闭 / 发送 / Enter 发送
   $("closeContactSend").onclick = closeContactSend;

@@ -245,6 +245,7 @@ function renderAll() {
   renderFaultBtn();
   renderAutoReplyBtn();
   if (typeof refreshContactCount === "function") refreshContactCount();
+  if (typeof renderContactTabPanel === "function") renderContactTabPanel();  // 消息页联系人 tab
   renderTopbarUser();
   if (state.currentMsgId) { renderThread(); renderChatHead(state.messages.find(m => m.id === state.currentMsgId)); }
   // 视图层打开时同步刷新（后台来新消息 / 断开平台后数字要跟着变）

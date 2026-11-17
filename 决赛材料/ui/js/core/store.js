@@ -15,6 +15,7 @@ const state = {
   trace: {},               // 状态流转记录：msgId -> [{step, detail, time}]
   msgSeq: 100,
   faultPending: false,     // 故障演练：下一次发送注入一次主通道故障（演示用）
+  friends: [],             // 好友清单（手动添加的联系人，来自后端 contacts 表）
 
   profile: MOCK_PROFILE,   // 当前登录用户
   profileEditing: false,   // 个人资料：基本信息是否处于编辑态

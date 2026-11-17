@@ -98,13 +98,17 @@ function init() {
   // 工作台概览（会话面板空置时）
   initOverviewEvents();
 
-  // 侧栏收起 / 展开
+  // 侧栏收起 / 展开（窄屏时用 .side-open 控制显隐，宽屏用 .side-collapsed）
   $("sidebarCollapse").onclick = () => {
-    document.querySelector(".layout").classList.add("side-collapsed");
+    const layout = document.querySelector(".layout");
+    layout.classList.add("side-collapsed");
+    layout.classList.remove("side-open");
     $("sidebarExpand").hidden = false;
   };
   $("sidebarExpand").onclick = () => {
-    document.querySelector(".layout").classList.remove("side-collapsed");
+    const layout = document.querySelector(".layout");
+    layout.classList.remove("side-collapsed");
+    layout.classList.add("side-open");
     $("sidebarExpand").hidden = true;
   };
 

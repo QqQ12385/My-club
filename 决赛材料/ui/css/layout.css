@@ -280,7 +280,9 @@
 
 /* ===== 窄屏 ===== */
 @media (max-width: 920px) {
-  .sidebar { display: none; }
+  /* 窄屏默认收起侧栏（.side-open 由 JS 控制），但「展开」把手始终可见可点 */
+  .layout:not(.side-open) .sidebar { display: none; }
+  .layout:not(.side-open) .sidebar-expand { display: inline-flex !important; }
   .list-pane { width: 280px; }
 }
 @media (max-width: 900px) {

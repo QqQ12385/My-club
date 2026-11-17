@@ -468,6 +468,41 @@ async def contact_send(req: ContactSendReq, authorization: str | None = Header(N
     return {"ok": False, "channel": result.channel, "reason": result.reason}
 
 
+# ------------------------------------------------------------------ 好友（手动添加联系人）
+class FriendAddReq(BaseModel):
+    name: str
+    platform: str = "dingtalk"
+    chat: str = ""
+
+@app.get("/api/contacts/list")
+def friend_list(authorization: str | None = Header(None)):
+    """好友清单：手动添加的联系人（与消息自动聚合的联系人合并展示）。"""
+    owner = _current_account(authorization)  # None=管理员看全部
+    if owner:
+        rows = db.query("SELECT * FROM contacts WHERE owner=?", (owner,))
+    else:
+        rows = db.query("SELECT * FROM contacts")
+    return [{"id": r["id"], "platform": r["platform"], "name": r["name"],
+             "chat": r["chat"] or ""} for r in rows]
+
+@app.post("/api/contacts/add")
+def friend_add(req: FriendAddReq, authorization: str | None = Header(None)):
+    """添加好友：记录到联系人表（平台 + 显示名 + 会话名）。"""
+    if not req.name.strip():
+        raise HTTPException(400, "好友名称不能为空")
+    owner = _current_account(authorization) or "gary"
+    db.execute("INSERT INTO contacts(platform,name,chat,owner,created_at) VALUES(?,?,?,?,?)",
+               (req.platform if req.platform in CONNECTORS else "dingtalk",
+                req.name.strip(), req.chat.strip(), owner, time.time()))
+    db.add_op(f"添加好友 {req.name.strip()}（{req.platform}）")
+    return {"ok": True}
+
+@app.delete("/api/contacts/{cid}")
+def friend_delete(cid: int):
+    db.execute("DELETE FROM contacts WHERE id=?", (cid,))
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ 文件发送（功能需求第3条：发送文件）
 @app.post("/api/messages/{mid}/send-file")
 async def send_file(mid: str, file: UploadFile = File(...)):

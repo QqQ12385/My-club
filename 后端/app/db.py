@@ -76,6 +76,14 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 time TEXT, text TEXT
             );
+            CREATE TABLE IF NOT EXISTS contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL,            -- dingtalk | wechat
+                name TEXT NOT NULL,                -- 好友显示名
+                chat TEXT,                         -- 会话/群名
+                owner TEXT NOT NULL DEFAULT 'gary',-- 归属账号
+                created_at REAL NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 account TEXT UNIQUE NOT NULL,      -- 登录账号（小写）
