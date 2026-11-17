@@ -86,11 +86,14 @@ def _build_handler(ChatbotHandler, ChatbotMessage, AckMessage):
 
 
 def _build_recall_handler(AckMessage):
-    """撤回事件回调 handler（事件订阅，裸 dict，不是 ChatbotMessage）。"""
-    class _RecallHandler:
-        async def process(self, message):
+    """撤回事件回调 handler（事件订阅，裸 dict，不是 ChatbotMessage）。
+    必须继承 SDK 的 CallbackHandler（pre_start/post_start 生命周期钩子）。"""
+    from dingtalk_stream import CallbackHandler
+
+    class _RecallHandler(CallbackHandler):
+        async def process(self, callback_message):
             try:
-                data = message.data if hasattr(message, "data") else message
+                data = getattr(callback_message, "data", None)
                 if isinstance(data, str):
                     data = json.loads(data)
                 log.info("收到钉钉撤回事件: %s", data)
