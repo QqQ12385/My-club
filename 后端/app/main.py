@@ -17,7 +17,7 @@ import uuid
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Header, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, HTMLResponse
 from pydantic import BaseModel
 from pathlib import Path
 
@@ -29,6 +29,7 @@ from .normalize import normalize_incoming   # 归一化层
 from .send_router import route_reply        # 发送路由（主备降级）
 from .ws import hub
 from . import dingtalk_stream_connector as dt_stream   # 钉钉企业内部应用（Stream 双向收发）
+from . import dingtalk_oauth as dt_oauth                # 钉钉扫码登录（OAuth 授权登录）
 
 app = FastAPI(title="统一消息管理后端", version="1.0.0")
 app.add_middleware(
@@ -228,6 +229,71 @@ def register(req: RegisterReq):
 @app.post("/api/auth/logout")
 def logout():
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ 钉钉扫码登录（OAuth）
+_oauth_states: dict[str, str] = {}   # state -> 随机串（防 CSRF）
+
+# 前端轮询/回跳落地页：拿到 token 后前端用它换本系统 token
+@app.get("/api/auth/dingtalk/url")
+def dingtalk_login_url():
+    """返回钉钉扫码登录授权 URL + state。前端跳转该 URL。"""
+    if not dt_oauth.is_configured():
+        raise HTTPException(503, "未配置钉钉扫码登录（需 DINGTALK_CORP_ID/APP_KEY/SECRET）")
+    state = dt_oauth.make_state()
+    _oauth_states[state] = "pending"
+    return {"url": dt_oauth.build_authorize_url(state), "state": state}
+
+
+@app.get("/api/auth/dingtalk/callback")
+async def dingtalk_login_callback(code: str = Query(None), state: str = Query(None),
+                                  request: Request = None):
+    """钉钉扫码登录回跳：用 code 换用户信息 → 映射/注册本地账号 → 签发 token。
+    前端用 window.opener.postMessage 或轮询拿到 token。"""
+    if not code:
+        return HTMLResponse("<h3>登录失败：未收到授权码</h3>")
+    userinfo = await dt_oauth.exchange_user(code)
+    if not userinfo or not userinfo.get("unionId"):
+        return HTMLResponse("<h3>登录失败：钉钉返回的用户信息无效</h3>")
+    unionid = userinfo["unionId"]
+    nick = userinfo.get("nick") or "钉钉用户"
+
+    user = db.get_user_by_unionid(unionid)
+    if not user:
+        user = db.create_user_by_unionid(unionid, nick)
+    if not user:
+        return HTMLResponse("<h3>登录失败：无法创建本地账号</h3>")
+
+    token = secrets.token_urlsafe(24)
+    tokens[token] = user["account"]
+    prof = _user_to_profile(user)
+    prof["loginType"] = "钉钉扫码登录"
+    prof["lastLogin"]["time"] = time.strftime("今天 %H:%M")
+    db.add_op(f"钉钉扫码登录（{nick} / {user['account']}）")
+
+    # 通过 state 关联的临时落地页把 token 交给前端；简单起见直接内嵌脚本回传
+    return HTMLResponse(f"""
+    <!doctype html><meta charset="utf-8"><title>钉钉登录成功</title>
+    <script>
+      const payload = {{
+        token: {json.dumps(token)},
+        user: {json.dumps(prof, ensure_ascii=False)}
+      }};
+      if (window.opener && !window.opener.closed) {{
+        window.opener.postMessage({{ type: 'dingtalk-login', ...payload }}, '*');
+      }}
+      window.close();
+    </script>
+    <body style="font-family:sans-serif;text-align:center;padding-top:60px;">
+      钉钉扫码登录成功，正在返回…<br>
+      <small>若未自动返回，请回到原页面点击「钉钉扫码登录」重试。</small>
+    </body>""")
+
+
+@app.get("/api/auth/dingtalk/state/{state}")
+def dingtalk_login_state(state: str):
+    """前端轮询：state 未完成时用 postMessage 通道即可，这里作为兜底。"""
+    return {"ready": False}
 
 
 def get_profile() -> dict:

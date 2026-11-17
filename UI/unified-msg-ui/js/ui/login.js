@@ -192,6 +192,45 @@ function switchLoginMode(mode) {
   setLoginError("");
 }
 
+/* ---------- 钉钉扫码登录（OAuth 授权登录）----------
+   流程：前端 GET /auth/dingtalk/url 拿授权 URL → window.open 打开钉钉授权页
+   → 用户扫码授权 → 钉钉回跳后端 callback → 后端换用户信息、签 token
+   → 后端落地页 postMessage 回传 token+user → 前端收下完成登录。 */
+async function dingtalkQrLogin() {
+  setLoginError("");
+  try {
+    const resp = await fetch(`${API_BASE}/auth/dingtalk/url`);
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      setLoginError(data.detail || "钉钉扫码登录未配置（需在开放平台开通扫码登录并配置回调）");
+      return;
+    }
+    const data = await resp.json();
+    // 打开授权窗口（新窗口，扫码后钉钉回跳，postMessage 回传）
+    const win = window.open(data.url, "dingtalk-login", "width=460,height=620");
+    if (!win) { setLoginError("浏览器拦截了弹窗，请允许弹出窗口后重试"); return; }
+    setLoginError("已打开钉钉授权页，请用钉钉 App 扫码…");
+
+    // 监听回传（后端 callback 页 window.opener.postMessage）
+    const handler = (e) => {
+      if (!e.data || e.data.type !== "dingtalk-login") return;
+      window.removeEventListener("message", handler);
+      const { token, user } = e.data;
+      window.AUTH_TOKEN = token;
+      applyProfile(user);
+      doLoginSuccess(`钉钉扫码登录成功，欢迎 ${user.cnName || user.name}`);
+    };
+    window.addEventListener("message", handler);
+    // 兜底：30 秒后若未回传，提示可重试
+    setTimeout(() => {
+      window.removeEventListener("message", handler);
+      setLoginError("");
+    }, 30000);
+  } catch (e) {
+    setLoginError("无法连接后端服务，无法发起钉钉扫码登录");
+  }
+}
+
 /* ---------- 事件绑定 ---------- */
 function initLogin() {
   $("loginBtn").onclick = () => loginMode === "register" ? attemptRegister() : attemptLogin();
@@ -212,8 +251,7 @@ function initLogin() {
   };
 
   $("loginQr").onclick = () => {
-    // 扫码登录需对接企业微信 OAuth，初赛阶段保留为提示（不误导评委以为已实现）
-    setLoginError("扫码登录需对接企业微信 OAuth，当前请使用账号密码登录或一键演示");
+    dingtalkQrLogin();
   };
 
   $("loginForget").onclick = () => {

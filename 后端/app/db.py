@@ -90,6 +90,7 @@ def init_db():
                 name TEXT NOT NULL,                -- 显示姓名
                 password_hash TEXT NOT NULL,       -- sha256 加盐哈希
                 role TEXT NOT NULL DEFAULT 'user', -- admin | user
+                dingtalk_unionid TEXT,             -- 钉钉扫码登录绑定的 unionId（可空）
                 created_at REAL NOT NULL
             );
             """
@@ -101,6 +102,10 @@ def init_db():
         # 迁移：老库补 owner 列（多用户数据隔离）
         if "owner" not in cols:
             _conn.execute("ALTER TABLE messages ADD COLUMN owner TEXT NOT NULL DEFAULT 'gary'")
+        # 迁移：users 补 dingtalk_unionid 列（钉钉扫码登录绑定）
+        ucols = [r[1] for r in _conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "dingtalk_unionid" not in ucols:
+            _conn.execute("ALTER TABLE users ADD COLUMN dingtalk_unionid TEXT")
 
 
 def query(sql: str, args: tuple = ()) -> list:
@@ -175,6 +180,31 @@ def create_user(account: str, name: str, password: str, role: str = "user") -> d
 def get_user_by_account(account: str) -> dict | None:
     rows = query("SELECT * FROM users WHERE account=?", (account.strip().lower(),))
     return dict(rows[0]) if rows else None
+
+
+def get_user_by_unionid(unionid: str) -> dict | None:
+    if not unionid:
+        return None
+    rows = query("SELECT * FROM users WHERE dingtalk_unionid=?", (unionid,))
+    return dict(rows[0]) if rows else None
+
+
+def create_user_by_unionid(unionid: str, name: str) -> dict | None:
+    """钉钉扫码登录自动注册本地账号：账号取 ding_<unionid后8位>，绑定 unionId。"""
+    acc = f"ding_{unionid[-8:]}" if len(unionid) >= 8 else f"ding_{unionid}"
+    if get_user_by_unionid(unionid):
+        return get_user_by_unionid(unionid)
+    execute(
+        "INSERT INTO users(account, name, password_hash, role, dingtalk_unionid, created_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (acc, name.strip() or "钉钉用户", hash_password(secrets_token()), "user",
+         unionid, time.time()))
+    return get_user_by_unionid(unionid)
+
+
+def secrets_token() -> str:
+    import secrets as _s
+    return _s.token_urlsafe(12)
 
 
 def verify_user(account: str, password: str) -> dict | None:
