@@ -132,13 +132,16 @@ async def upload_media(filename: str, content: bytes) -> dict:
 
 
 async def send_file(open_conversation_id: str, media_id: str, filename: str) -> dict:
-    """通过机器人发送文件消息到指定群/会话（msgKey=sampleFile）。"""
+    """通过机器人发送文件消息到指定群/会话（msgKey=sampleFile）。
+
+    群消息走 /v1.0/robot/groupMessages/send（群机器人接口，支持文件）；
+    oToMessages/batchSend 对文件消息强制要求 userIds，群聊场景不可用。
+    群接口失败时降级再试 oToMessages（单聊兜底）。"""
     if not (_APP_KEY and _APP_SECRET):
         return {"ok": False, "reason": "未配置钉钉企业应用凭据"}
     token = await _get_token()
     if not token:
         return {"ok": False, "reason": "获取钉钉 access_token 失败"}
-    url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
     headers = {
         "Content-Type": "application/json",
         "x-acs-dingtalk-access-token": token,
@@ -150,13 +153,21 @@ async def send_file(open_conversation_id: str, media_id: str, filename: str) -> 
         "msgParam": json.dumps({"mediaId": media_id, "fileName": filename},
                                ensure_ascii=False),
     }
+    urls = [
+        ("https://api.dingtalk.com/v1.0/robot/groupMessages/send", "群"),
+        ("https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend", "单聊"),
+    ]
+    last_reason = ""
     try:
         async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.post(url, headers=headers, json=body)
-            data = r.json()
-            if r.status_code != 200 or data.get("processQueryKey") is None:
-                return {"ok": False, "reason": f"钉钉文件发送失败: {data.get('message') or data}"}
-            return {"ok": True}
+            for url, tag in urls:
+                r = await c.post(url, headers=headers, json=body)
+                data = r.json()
+                if r.status_code == 200 and data.get("processQueryKey") is not None:
+                    return {"ok": True}
+                last_reason = f"钉钉文件发送失败（{tag}接口）: {data.get('message') or data}"
+                log.warning("%s", last_reason)
+        return {"ok": False, "reason": last_reason}
     except Exception as e:
         return {"ok": False, "reason": f"钉钉文件发送异常: {e}"}
 
