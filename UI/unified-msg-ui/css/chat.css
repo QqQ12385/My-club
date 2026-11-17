@@ -335,3 +335,15 @@
 }
 .send-btn:hover { background: var(--primary-dark); }
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ===== 联系人合并会话 / 删除功能（v20261117e）===== */
+.bubble-del {
+  border: none; background: none; color: var(--text-3, #999);
+  font-size: 11px; cursor: pointer; margin-left: 6px; padding: 0 2px;
+}
+.bubble-del:hover { color: #c0392b; text-decoration: underline; }
+.conv-cnt {
+  font-size: 10px; color: var(--text-3, #999);
+  border: 1px solid currentColor; border-radius: 8px; padding: 0 5px; margin-left: 4px;
+}
+.head-btn.danger:hover { color: #c0392b; background: rgba(192, 57, 43, .08); }

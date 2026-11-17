@@ -28,6 +28,10 @@ function init() {
     toast(n ? `已将 ${n} 条消息标为已读` : "当前没有未读消息");
   };
 
+  // 清空全部聊天记录
+  const clearAll = $("clearAllBtn");
+  if (clearAll) clearAll.onclick = clearAllMessages;
+
   // 帮助气泡（侧栏底部）
   $("helpBtn").onclick = (e) => {
     e.stopPropagation();

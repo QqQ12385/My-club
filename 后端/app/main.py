@@ -375,8 +375,56 @@ def list_messages(platform: str = "", status: str = "", keyword: str = "",
 @app.get("/api/messages/{mid}/thread")
 def get_thread(mid: str, authorization: str | None = Header(None)):
     rows = db.query("SELECT * FROM thread WHERE msg_id=? ORDER BY id", (mid,))
-    return [{"from": r["from_side"], "text": r["text"], "time": r["time"],
+    return [{"id": r["id"], "from": r["from_side"], "text": r["text"], "time": r["time"],
              "sendStatus": r["send_status"], "channel": r["channel"]} for r in rows]
+
+
+@app.delete("/api/thread/{tid}")
+def delete_thread_item(tid: int):
+    """删除单条会话记录（聊天气泡级删除）。"""
+    db.execute("DELETE FROM thread WHERE id=?", (tid,))
+    return {"ok": True}
+
+
+def _delete_message_cascade(mid: str):
+    db.execute("DELETE FROM thread WHERE msg_id=?", (mid,))
+    db.execute("DELETE FROM traces WHERE msg_id=?", (mid,))
+    db.execute("DELETE FROM messages WHERE id=?", (mid,))
+
+
+@app.delete("/api/messages/{mid}")
+def delete_message(mid: str):
+    """删除单条消息（连同会话上下文与状态流转记录）。"""
+    _delete_message_cascade(mid)
+    return {"ok": True}
+
+
+@app.post("/api/messages/clear")
+def clear_messages(authorization: str | None = Header(None)):
+    """清空聊天记录：删除当前账号名下的全部消息（管理员清空全部）。"""
+    owner = _current_account(authorization)
+    if owner:
+        mids = [r["id"] for r in db.query("SELECT id FROM messages WHERE owner=?", (owner,))]
+    else:
+        mids = [r["id"] for r in db.query("SELECT id FROM messages")]
+    for mid in mids:
+        _delete_message_cascade(mid)
+    db.add_op(f"清空聊天记录（{len(mids)} 条）")
+    return {"ok": True, "deleted": len(mids)}
+
+
+@app.post("/api/messages/delete-contact")
+def delete_contact_messages(req: SyncReq, authorization: str | None = Header(None)):
+    """删除某联系人的全部消息（会话级删除：按平台+发送人匹配）。"""
+    owner = _current_account(authorization)
+    sql, args = "SELECT id FROM messages WHERE platform=? AND sender=?", (req.platform, req.sender)
+    if owner:
+        sql += " AND owner=?"; args += (owner,)
+    mids = [r["id"] for r in db.query(sql, tuple(args))]
+    for mid in mids:
+        _delete_message_cascade(mid)
+    db.add_op(f"删除与 {req.sender} 的会话（{len(mids)} 条消息）")
+    return {"ok": True, "deleted": len(mids)}
 
 
 class ReplyReq(BaseModel):

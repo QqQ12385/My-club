@@ -82,13 +82,23 @@ const EMOJIS = [
 function openChat(id) {
   const msg = state.messages.find(m => m.id === id);
   if (!msg) return;
-  state.currentMsgId = id;
-  if (msg.unread) { msg.unread = false; renderAll(); }
+  openContact(contactKeyOf(msg));
+}
+
+/* 按联系人打开会话：同一人（平台+发送人）的所有消息合并成一个连续会话。
+   锚点取最新一条消息（回复走它，conv_id 也是最新的）。 */
+function openContact(key) {
+  const msgs = messagesOfContact(key);
+  if (!msgs.length) return;
+  const anchor = msgs[0];          // 最新一条
+  state.currentContactKey = key;
+  state.currentMsgId = anchor.id;
+  msgs.forEach(m => { if (m.unread) m.unread = false; });
 
   $("chatEmpty").hidden = true;
   $("chatBody").hidden = false;
 
-  renderChatHead(msg);
+  renderChatHead(anchor);
   renderThread();
   renderQuickReplies();
   $("chatInput").value = "";
@@ -97,8 +107,8 @@ function openChat(id) {
   updateConvPreview("");
   renderAll();
 
-  // 后端真数据模式下，异步拉取该会话的历史 thread（含我方回复），拉到后刷新
-  loadThread(id);
+  // 异步拉取该联系人每条消息的历史 thread（含我方回复），全部拉到后合并刷新
+  msgs.forEach(m => loadThread(m.id));
 }
 
 /* 从后端拉取会话上下文（懒加载）。后端未启动或失败时静默保留本地缓存。 */
@@ -110,6 +120,7 @@ async function loadThread(msgId) {
     const rows = await r.json();
     if (!Array.isArray(rows)) return;
     const mapped = rows.map(t => ({
+      id: t.id,
       from: t.from === "me" ? "me" : "them",
       text: t.text,
       time: t.time,
@@ -118,14 +129,16 @@ async function loadThread(msgId) {
     }));
     if (mapped.length) {
       state.threads[msgId] = mapped;
-      // 仅当还在看这条消息时刷新（避免刷新别的会话）
-      if (state.currentMsgId === msgId) renderThread();
+      // 该消息属于当前打开的联系人会话时刷新（合并视图）
+      const cur = state.currentContactKey && messagesOfContact(state.currentContactKey) || [];
+      if (cur.some(m => m.id === msgId)) renderThread();
     }
   } catch (e) { /* 忽略，保留本地 */ }
 }
 
 function closeChat() {
   state.currentMsgId = null;
+  state.currentContactKey = null;
   $("chatBody").hidden = true;
   $("chatEmpty").hidden = false;
   renderAll();
@@ -154,14 +167,16 @@ function renderChatHead(msg) {
   $("chatMute").title = isMuted(msg) ? "取消免打扰" : "开启免打扰";
 }
 
-/* ---------- 会话气泡 ---------- */
+/* ---------- 会话气泡（联系人合并视图：同一人的全部消息连续展示）---------- */
 function renderThread() {
   const msg = state.messages.find(m => m.id === state.currentMsgId);
   if (!msg) return;
-  const thread = getThread(msg.id);
+  const thread = getContactThread(state.currentContactKey);
   const plan = planOf(msg);
 
   $("chatThread").innerHTML = thread.map((t, idx) => {
+    // 每个气泡带删除入口（后端落库的记录可真删，本地未落库的仅前端移除）
+    const delBtn = `<button class="bubble-del" data-del="${idx}" title="删除这条记录">删除</button>`;
     if (t.from === "me") {
       const ch = t.channel || plan.primary;
       const failed = t.sendStatus === "failed";
@@ -179,6 +194,7 @@ function renderThread() {
             <div class="bubble-status">
               ${stText ? stText + " · " : ""}${t.time}
               <span class="ch-tag ${ch}" title="经${CHANNELS[ch].name}发送">${CHANNELS[ch].short}</span>
+              ${delBtn}
             </div>
             ${failed ? `
               <div class="bubble-actions">
@@ -193,18 +209,96 @@ function renderThread() {
         <div class="avatar small"><span>${getAvatarText(msg.sender)}</span></div>
         <div class="bubble them-bubble">
           <div class="bubble-text">${t.text}</div>
-          <div class="bubble-status">${t.time}</div>
+          <div class="bubble-status">${t.time} ${delBtn}</div>
         </div>
       </div>`;
   }).join("");
 
-  // 失败气泡上的重试入口
+  // 失败气泡上的重试入口（定位到气泡归属的消息 thread）
   $("chatThread").querySelectorAll("[data-retry]").forEach(btn => {
-    btn.onclick = () => retrySend(msg.id, Number(btn.dataset.retry), btn.dataset.switch === "1");
+    btn.onclick = () => {
+      const t = thread[Number(btn.dataset.retry)];
+      if (t) retrySend(t._mid, t._idx, btn.dataset.switch === "1");
+    };
+  });
+  // 删除单条会话记录
+  $("chatThread").querySelectorAll("[data-del]").forEach(btn => {
+    btn.onclick = () => deleteThreadItem(thread[Number(btn.dataset.del)]);
   });
 
   const box = $("chatThread");
   box.scrollTop = box.scrollHeight;
+}
+
+/* ---------- 删除单条会话记录（气泡级）----------
+   后端落库的记录（有 id）真删；本地未落库的只从界面移除。 */
+async function deleteThreadItem(t) {
+  if (!t) return;
+  if (!confirm("删除这条聊天记录？")) return;
+  const arr = state.threads[t._mid];
+  if (arr) arr.splice(t._idx, 1);
+  if (t.id) {
+    try {
+      await fetch(`${API_BASE}/thread/${t.id}`, {
+        method: "DELETE",
+        headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+      });
+    } catch (e) { /* 后端不可达时仅前端移除 */ }
+  }
+  renderThread();
+  renderAll();
+  toast("已删除该条记录");
+}
+
+/* ---------- 删除整个会话（当前联系人的全部消息）---------- */
+async function deleteContactConversation() {
+  const key = state.currentContactKey;
+  if (!key) return;
+  const anchor = state.messages.find(m => m.id === state.currentMsgId);
+  if (!anchor) return;
+  if (!confirm(`删除与「${anchor.sender}」的全部聊天记录？此操作不可恢复。`)) return;
+  try {
+    const resp = await fetch(`${API_BASE}/messages/delete-contact`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+      },
+      body: JSON.stringify({ platform: anchor.platform, sender: anchor.sender }),
+    });
+    const data = await resp.json();
+    if (!data.ok) { toast("删除失败：" + (data.detail || "未知错误")); return; }
+  } catch (e) { /* 后端不可达也继续清前端 */ }
+  // 前端同步移除
+  const mids = messagesOfContact(key).map(m => m.id);
+  state.messages = state.messages.filter(m => contactKeyOf(m) !== key);
+  mids.forEach(id => { delete state.threads[id]; delete state.trace[id]; });
+  closeChat();
+  if (typeof loadBackendData === "function") loadBackendData();
+  toast(`已删除与「${anchor.sender}」的会话`);
+}
+
+/* ---------- 清空全部聊天记录 ---------- */
+async function clearAllMessages() {
+  if (!confirm("清空全部聊天记录？所有会话将被删除，此操作不可恢复。")) return;
+  try {
+    const resp = await fetch(`${API_BASE}/messages/clear`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+      },
+    });
+    const data = await resp.json();
+    if (!data.ok) { toast("清空失败"); return; }
+    toast(`已清空 ${data.deleted} 条聊天记录`);
+  } catch (e) { /* 后端不可达也继续清前端 */ }
+  state.messages = [];
+  state.todos = [];
+  state.threads = {};
+  state.trace = {};
+  closeChat();
+  renderAll();
 }
 
 /* ---------- 重试发送 ----------

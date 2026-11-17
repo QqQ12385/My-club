@@ -73,18 +73,20 @@ const ICON = {
   mute: `<svg viewBox="0 0 24 24" class="flag-ic"><path d="M12 4a5 5 0 0 1 5 5v4l2 2H5l2-2V9a5 5 0 0 1 5-5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 18a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
 };
 
-function convRowHtml(m) {
+function convRowHtml(m, extra) {
   const flags = `${isPinned(m) ? `<i class="conv-flag pin" title="已置顶">${ICON.pin}</i>` : ""}` +
                 `${isMuted(m) ? `<i class="conv-flag mute" title="免打扰">${ICON.mute}</i>` : ""}`;
+  const cnt = extra && extra.count > 1 ? `<span class="conv-cnt">${extra.count} 条</span>` : "";
   return `
-    <div class="conv-item ${m.unread ? "unread" : ""} ${m.muted ? "muted" : ""} ${m.id === state.currentMsgId ? "active" : ""}"
-         data-id="${m.id}">
+    <div class="conv-item ${extra && extra.unread ? "unread" : ""} ${m.muted ? "muted" : ""} ${contactKeyOf(m) === state.currentContactKey ? "active" : ""}"
+         data-key="${contactKeyOf(m)}">
       <div class="avatar"><span>${getAvatarText(m.sender)}</span><i class="av-dot ${m.platform}"></i></div>
       <div class="conv-main">
         <div class="conv-top">
           <span class="conv-name">${m.sender}</span>
           ${flags}
           <span class="status-badge ${m.status}">${STATUS_TEXT[m.status]}</span>
+          ${cnt}
           <span class="conv-time">${m.time}</span>
         </div>
         <div class="conv-preview">${m.content}</div>
@@ -105,30 +107,52 @@ function renderMessages() {
     return;
   }
 
+  // 按联系人聚合：同一个人（平台+发送人）只显示一个会话行，
+  // 预览显示最新一条消息，未读与条数合并统计（微信式）
+  const byContact = new Map();
+  list.forEach(m => {
+    const key = contactKeyOf(m);
+    if (!byContact.has(key)) {
+      byContact.set(key, { anchor: m, unread: 0, count: 0 });
+    }
+    const g = byContact.get(key);
+    g.count += 1;
+    if (m.unread) g.unread += 1;
+    // 置顶：任一消息被置顶即整行置顶，锚点取被置顶里的最新一条
+    if (isPinned(m) && !isPinned(g.anchor)) {
+      if (!isPinned(g.anchor)) g.anchor = m;
+    }
+  });
+  const rows = [...byContact.values()];
+
   // 置顶区独立成组置顶展示，但计入所属天分组（今天/昨天/更早）的条数，
   // 保证分组标题数与「今日概览 · 今日新消息」等统计口径一致
-  const pinned = list.filter(isPinned);
+  const pinned = rows.filter(g => isPinned(g.anchor));
   const groups = { today: [], yesterday: [], earlier: [] };
-  list.forEach(m => { (groups[m.day || "today"]).push(m); });
+  rows.forEach(g => { (groups[g.anchor.day || "today"]).push(g); });
 
   let html = "";
   if (pinned.length) {
     html += `<div class="group-title">置顶 · ${pinned.length} 条</div>`;
-    html += pinned.map(convRowHtml).join("");
+    html += pinned.map(g => convRowHtml(g.anchor, g)).join("");
   }
   for (const key of ["today", "yesterday", "earlier"]) {
-    const nonPinned = groups[key].filter(m => !isPinned(m));
+    const nonPinned = groups[key].filter(g => !isPinned(g.anchor));
     if (groups[key].length === 0) continue;
-    html += `<div class="group-title">${DAY_NAME[key]} · ${groups[key].length} 条</div>`;
-    html += nonPinned.map(convRowHtml).join("");
+    html += `<div class="group-title">${DAY_NAME[key]} · ${groups[key].length} 个会话</div>`;
+    html += nonPinned.map(g => convRowHtml(g.anchor, g)).join("");
   }
   box.innerHTML = html;
 
-  // 行点击进会话；右键查看状态流转（置顶/免打扰在会话头部操作）
+  // 行点击进会话（按联系人打开合并会话）；右键查看状态流转
   box.querySelectorAll(".conv-item").forEach(item => {
-    const id = item.dataset.id;
-    item.onclick = () => openChat(id);
-    item.oncontextmenu = (e) => { e.preventDefault(); openTrace(id); };
+    const key = item.dataset.key;
+    item.onclick = () => openContact(key);
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      const g = byContact.get(key);
+      if (g) openTrace(g.anchor.id);
+    };
   });
 }
 

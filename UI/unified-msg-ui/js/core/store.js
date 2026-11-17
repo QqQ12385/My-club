@@ -11,7 +11,8 @@ const state = {
   filter: "all",           // 平台筛选 all | wechat | dingtalk
   statusFilter: "all",     // 状态筛选 all | unread | pending | done
   keyword: "",
-  currentMsgId: null,      // 当前打开会话的消息 id
+  currentMsgId: null,      // 当前打开会话的锚点消息 id（最新一条）
+  currentContactKey: null, // 当前打开的联系人（platform|sender），同一人合并一个会话
   trace: {},               // 状态流转记录：msgId -> [{step, detail, time}]
   msgSeq: 100,
   faultPending: false,     // 故障演练：下一次发送注入一次主通道故障（演示用）
@@ -138,4 +139,28 @@ function getThread(msgId) {
 
 function appendThread(msgId, entry) {
   getThread(msgId).push(entry);
+}
+
+// ---------- 联系人会话合并（同一人只显示一个会话）----------
+/* 联系人唯一键：平台 + 发送人（同一个人在同一个平台只有一个会话） */
+function contactKeyOf(m) {
+  return `${m.platform}|${m.sender}`;
+}
+
+/* 取某联系人的全部消息（按 state.messages 顺序 = 新→旧） */
+function messagesOfContact(key) {
+  return state.messages.filter(m => contactKeyOf(m) === key);
+}
+
+/* 合并后的会话气泡：该联系人每条消息的 thread 按时间先后拼接。
+   每个气泡带 _mid（归属消息）与 _idx（在该消息 thread 中的下标），供重试/删除定位。 */
+function getContactThread(key) {
+  const msgs = messagesOfContact(key).slice().reverse();  // 旧→新
+  const merged = [];
+  msgs.forEach(m => {
+    getThread(m.id).forEach((t, idx) => {
+      merged.push({ ...t, _mid: m.id, _idx: idx });
+    });
+  });
+  return merged;
 }

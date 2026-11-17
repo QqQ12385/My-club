@@ -322,15 +322,16 @@ function buildContactList() {
     if (m.convId && !c.convId) c.convId = m.convId;
     if (isAlertUnread(m)) c.unread += 1;
   });
-  // 手动添加的好友：消息里没有也出现在清单里
+  // 手动添加的好友：消息里没有也出现在清单里（带 id，可删除）
   (state.friends || []).forEach(f => {
     const key = `${f.platform}|${f.name}`;
     if (!map.has(key)) {
       map.set(key, { key, platform: f.platform, sender: f.name,
         chat: f.chat || "", lastTime: "—", lastText: "（暂无消息）",
-        unread: 0, count: 0, msgIds: [], convId: "", friend: true });
+        unread: 0, count: 0, msgIds: [], convId: "", friend: true, friendId: f.id });
     } else {
       map.get(key).friend = true;
+      map.get(key).friendId = f.id;
     }
   });
   return [...map.values()].sort((a, b) => b.count - a.count);
@@ -363,6 +364,7 @@ function renderContacts() {
           <button class="primary" data-send-contact="${c.sender}"
                   data-platform="${c.platform}" data-chat="${c.chat}" data-conv="${c.convId}">发消息</button>
           ${c.msgIds.length ? `<button data-open-msg="${c.msgIds[0]}">查看消息</button>` : ""}
+          ${c.friendId ? `<button class="danger" data-del-friend="${c.friendId}" data-name="${c.sender}">删除好友</button>` : ""}
           ${c.unread ? `<span class="contact-unread">${c.unread} 未读</span>` : `<span class="contact-unread zero">已读</span>`}
           <span class="contact-unread zero">${c.count} 条</span>
         </div>
@@ -527,6 +529,7 @@ function renderContactTabPanel() {
             <button class="primary" data-send-contact="${c.sender}"
                     data-platform="${c.platform}" data-chat="${c.chat}" data-conv="${c.convId}">发消息</button>
             ${c.msgIds.length ? `<button data-open-msg="${c.msgIds[0]}">查看消息</button>` : ""}
+            ${c.friendId ? `<button class="danger" data-del-friend="${c.friendId}" data-name="${c.sender}">删除</button>` : ""}
           </div>
         </div>
       </div>`;
@@ -535,6 +538,28 @@ function renderContactTabPanel() {
   el.innerHTML = list.length
     ? list.map(row).join("")
     : `<div class="ov-empty">暂无联系人 · 收到平台消息或手动添加好友后显示</div>`;
+}
+
+/* ---------- 删除好友 ---------- */
+async function deleteFriend(id, name) {
+  if (!confirm(`删除好友「${name}」？（仅删除好友记录，消息保留）`)) return;
+  try {
+    const resp = await fetch(`${API_BASE}/contacts/${id}`, {
+      method: "DELETE",
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      state.friends = (state.friends || []).filter(f => f.id !== id);
+      toast(`已删除好友：${name}`);
+      renderContactTabPanel();
+      if (state.view === "contacts") renderContacts();
+    } else {
+      toast("删除失败");
+    }
+  } catch (e) {
+    toast("后端不可达，请确认启动.bat 已运行");
+  }
 }
 
 /* ---------- 事件（容器级委托，渲染重建后依然有效）---------- */function initViewEvents() {
@@ -552,9 +577,11 @@ function renderContactTabPanel() {
     if (e.target === $("friendAddLayer")) closeFriendAdd();
   });
 
-  // 消息页联系人 tab：发消息 / 查看消息（与全屏视图同样的事件委托）
+  // 消息页联系人 tab：发消息 / 查看消息 / 删除好友（与全屏视图同样的事件委托）
   const ctl = $("contactTabList");
   if (ctl) ctl.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del-friend]");
+    if (del) { deleteFriend(del.dataset.delFriend, del.dataset.name); return; }
     const send = e.target.closest("[data-send-contact]");
     if (send) {
       openContactSend({
