@@ -417,6 +417,57 @@ async def reply(mid: str, req: ReplyReq):
         return {"ok": False, "channel": result.channel, "reason": result.reason}
 
 
+# ------------------------------------------------------------------ 主动发消息（联系人清单发起，个体间互发）
+class ContactSendReq(BaseModel):
+    platform: str                      # dingtalk | wechat
+    sender: str                        # 目标联系人姓名
+    chat: str = ""                     # 会话/群名
+    conv_id: str = ""                  # 钉钉 openConversationId（真实回发用）
+    text: str                          # 要发送的内容
+
+
+@app.post("/api/contacts/send")
+async def contact_send(req: ContactSendReq, authorization: str | None = Header(None)):
+    """从联系人清单主动发起消息（个体间互发，老师点评新增）。
+    钉钉：有 conv_id 走机器人 OpenAPI 真实 @该人 发到群；无 conv_id 降级 Webhook。
+    微信：走 RPA 通道。发送后落一条「我发出的」会话记录并回流状态。"""
+    if not req.text.strip():
+        raise HTTPException(400, "消息内容不能为空")
+    platform = req.platform if req.platform in CONNECTORS else "dingtalk"
+    owner = _current_account(authorization) or "gary"
+
+    # 构造一个临时的消息体走统一发送路由（复用主备降级与格式转换）
+    pseudo = {
+        "platform": platform,
+        "sender": req.sender.strip() or "联系人",
+        "chat": req.chat.strip() or "",
+        "convId": req.conv_id.strip() or "",
+        "conv_id": req.conv_id.strip() or "",
+    }
+    result: SendResult = await route_reply(pseudo, req.text.strip(), None, False)
+
+    now = time.strftime("%H:%M")
+    if result.ok:
+        # 主动发起的消息：落一条记录（type=text，status=replied，owner=当前账号）
+        mid = f"m{uuid.uuid4().hex[:8]}"
+        dedup = db.dedup_hash(platform, req.sender, now, req.text)
+        db.execute(
+            "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
+            "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
+            " VALUES(?,?,NULL,?,?,?,?,?,?, 'replied',0,0,0,?,?,?,?)",
+            (mid, platform, req.sender.strip(), req.chat.strip() or platform, now, "today",
+             "text", req.text.strip(), dedup, req.conv_id.strip(), owner, time.time()))
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+                   " VALUES(?,?,?,?,?,?)", (mid, "me", req.text.strip(), now, "synced", result.channel))
+        db.add_trace(mid, "已回复", f"主动发消息：{result.channel} 通道发送成功 → {req.sender}")
+        await hub.broadcast({"type": "new_message",
+                             "data": db.msg_to_dict(db.query("SELECT * FROM messages WHERE id=?", (mid,))[0])})
+        await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "replied"}})
+        asyncio.get_event_loop().call_later(1.1, lambda: _sync_later(mid, result.channel))
+        return {"ok": True, "channel": result.channel, "messageId": mid}
+    return {"ok": False, "channel": result.channel, "reason": result.reason}
+
+
 # ------------------------------------------------------------------ 文件发送（功能需求第3条：发送文件）
 @app.post("/api/messages/{mid}/send-file")
 async def send_file(mid: str, file: UploadFile = File(...)):

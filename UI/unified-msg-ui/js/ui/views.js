@@ -304,7 +304,9 @@ function renderApps() {
 
 /* ---------- 联系人清单（朋友清单）----------
    按平台+发送人聚合会话：头像 / 平台 / 会话名 / 最近一条 / 未读数 / 消息数。
-   点击任一联系人 → 关闭视图 → 直接打开与 TA 的会话并聚焦输入框。 */
+   每个联系人两个动作：
+     · 查看消息：打开与 TA 的会话（回复历史）
+     · 发消息：直接发起新消息（个体间互发，走真实发送路由 @该人） */
 function renderContacts() {
   const map = new Map();
   state.messages.forEach(m => {
@@ -314,12 +316,14 @@ function renderContacts() {
         key, platform: m.platform, sender: m.sender,
         chat: m.chat || "", lastTime: m.time, lastText: m.content,
         unread: 0, count: 0,
-        msgIds: [],
+        msgIds: [], convId: m.convId || "",
       });
     }
     const c = map.get(key);
     c.count += 1;
     c.msgIds.push(m.id);
+    // 优先保留有 conv_id 的那条（真实回发用）
+    if (m.convId && !c.convId) c.convId = m.convId;
     if (isAlertUnread(m)) c.unread += 1;
     // 最近一条以列表顺序为准（state.messages 已按时间倒序）
   });
@@ -330,9 +334,8 @@ function renderContacts() {
 
   const card = (c) => {
     const p = PLATFORMS[c.platform];
-    const m0 = state.messages.find(m => m.id === c.msgIds[0]);
     return `
-      <div class="app-card contact-card" data-open-msg="${c.msgIds[0]}">
+      <div class="app-card contact-card">
         <div class="ac-head">
           <span class="ac-logo">${getAvatarText(c.sender)}</span>
           <div class="ac-name">
@@ -346,9 +349,11 @@ function renderContacts() {
           <span class="contact-last-time">${c.lastTime}</span>
         </div>
         <div class="ac-actions" style="border:none;padding-top:6px;">
-          <button class="primary" data-open-msg="${c.msgIds[0]}">查看消息 · 发送回复</button>
+          <button class="primary" data-send-contact="${c.sender}"
+                  data-platform="${c.platform}" data-chat="${c.chat}" data-conv="${c.convId}">发消息</button>
+          <button data-open-msg="${c.msgIds[0]}">查看消息</button>
           ${c.unread ? `<span class="contact-unread">${c.unread} 未读</span>` : `<span class="contact-unread zero">已读</span>`}
-          <span class="contact-unread zero">${c.count} 条消息</span>
+          <span class="contact-unread zero">${c.count} 条</span>
         </div>
       </div>`;
   };
@@ -365,16 +370,96 @@ function renderContacts() {
     </div>
     <p class="v-note" style="margin-top:14px;">
       联系人由各平台消息自动聚合（发送人 + 会话），体现连接器的统一数据模型：
-      无论钉钉、微信，联系人与消息都是同一种内部格式，查看与回复操作完全一致。
+      无论钉钉、微信，联系人与消息都是同一种内部格式。「发消息」可主动向该联系人发起消息，
+      「查看消息」进入历史会话回复。
     </p>`;
+}
+
+/* ---------- 主动发消息：打开一个与该联系人的「发起新消息」输入浮层 ----------
+   点「发消息」→ 弹出一个轻量输入框 → 走 POST /api/contacts/send 真实发送。
+   钉钉有 conv_id 时机器人真实 @该人 发到群；微信走 RPA。 */
+let contactSendTarget = null;   // { sender, platform, chat, convId }
+
+function openContactSend(target) {
+  contactSendTarget = target;
+  $("contactSendName").textContent = target.sender;
+  $("contactSendPlatform").textContent = PLATFORMS[target.platform].name + (target.chat ? " · " + target.chat : "");
+  $("contactSendInput").value = "";
+  $("contactSendLayer").hidden = false;
+  setTimeout(() => $("contactSendInput").focus(), 80);
+}
+
+function closeContactSend() {
+  contactSendTarget = null;
+  $("contactSendLayer").hidden = true;
+}
+
+async function submitContactSend() {
+  const text = $("contactSendInput").value.trim();
+  if (!text) { toast("请输入要发送的内容"); return; }
+  if (!contactSendTarget) return;
+  const t = contactSendTarget;
+
+  const btn = $("contactSendBtn");
+  btn.disabled = true;
+  btn.textContent = "发送中…";
+  try {
+    const resp = await fetch(`${API_BASE}/contacts/send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+      },
+      body: JSON.stringify({ platform: t.platform, sender: t.sender,
+                             chat: t.chat, conv_id: t.convId, text }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      closeContactSend();
+      toast(`已发送给 ${t.sender}（${PLATFORMS[t.platform].name}）`);
+      // 刷新消息列表以显示新落库的「我发出的」消息
+      if (typeof loadBackendData === "function") loadBackendData();
+    } else {
+      toast("发送失败：" + (data.reason || "未知错误"));
+    }
+  } catch (e) {
+    toast("后端不可达，请确认启动.bat 已运行");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "发 送";
+  }
 }
 
 /* ---------- 事件（容器级委托，渲染重建后依然有效）---------- */
 function initViewEvents() {
   $("viewBack").onclick = closeView;
 
-  // 联系人清单：点击卡片 → 关闭视图 → 打开与该联系人的会话
+  // 主动发消息浮层：关闭 / 发送 / Enter 发送
+  $("closeContactSend").onclick = closeContactSend;
+  $("contactSendBtn").onclick = submitContactSend;
+  $("contactSendInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitContactSend();
+    }
+  });
+  // 点击遮罩空白处关闭
+  $("contactSendLayer").addEventListener("click", (e) => {
+    if (e.target === $("contactSendLayer")) closeContactSend();
+  });
+
+  // 联系人清单：查看消息 → 打开会话；发消息 → 弹出主动发送输入框
   $("viewContacts").addEventListener("click", (e) => {
+    const send = e.target.closest("[data-send-contact]");
+    if (send) {
+      openContactSend({
+        sender: send.dataset.sendContact,
+        platform: send.dataset.platform,
+        chat: send.dataset.chat,
+        convId: send.dataset.conv,
+      });
+      return;
+    }
     const go = e.target.closest("[data-open-msg]");
     if (!go) return;
     const mid = go.dataset.openMsg;
