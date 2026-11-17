@@ -242,6 +242,20 @@ def auth(requester_token: str | None):
     return
 
 
+def _current_account(authorization: str | None) -> str | None:
+    """从 Authorization header 解析当前登录账号。
+    返回 None 表示管理员/未登录（可见全部消息），返回账号字符串表示该普通用户。
+    管理员(gary)也返回 None（可见全部）。"""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        if token in tokens:
+            acc = tokens[token]
+            u = db.get_user_by_account(acc)
+            if u and u.get("role") != "admin":
+                return acc
+    return None
+
+
 @app.get("/api/me")
 def me(authorization: str | None = Header(None)):
     # 有 token 时返回该用户的真实角色；无 token 返回默认资料
@@ -336,8 +350,13 @@ def _require_app(key: str):
 
 # ------------------------------------------------------------------ 消息
 @app.get("/api/messages")
-def list_messages(platform: str = "", status: str = "", keyword: str = ""):
+def list_messages(platform: str = "", status: str = "", keyword: str = "",
+                  authorization: str | None = Header(None)):
     sql, args = "SELECT * FROM messages WHERE 1=1", []
+    # 多用户数据隔离：普通用户只看自己名下的消息，管理员/未登录看全部
+    owner = _current_account(authorization)
+    if owner:
+        sql += " AND owner=?"; args.append(owner)
     if platform and platform != "all":
         sql += " AND platform=?"; args.append(platform)
     if status == "unread":
@@ -354,7 +373,7 @@ def list_messages(platform: str = "", status: str = "", keyword: str = ""):
 
 
 @app.get("/api/messages/{mid}/thread")
-def get_thread(mid: str):
+def get_thread(mid: str, authorization: str | None = Header(None)):
     rows = db.query("SELECT * FROM thread WHERE msg_id=? ORDER BY id", (mid,))
     return [{"from": r["from_side"], "text": r["text"], "time": r["time"],
              "sendStatus": r["send_status"], "channel": r["channel"]} for r in rows]
@@ -571,14 +590,19 @@ class IncomingReq(BaseModel):
 
 
 @app.post("/api/collector/incoming")
-async def collector_incoming(req: IncomingReq):
+async def collector_incoming(req: IncomingReq, authorization: str | None = Header(None)):
     """归一化入口：钉钉事件订阅回调、Power Automate RPA 采集流都打到这。
     返回 {"ok":true,"duplicated":false,"id":"..."}；重复消息 duplicated=true。"""
-    return await _ingest(req.model_dump())
+    raw = req.model_dump()
+    # 多用户隔离：普通用户采集的消息归属自己（管理员/无 token 归 gary）
+    owner = _current_account(authorization)
+    if owner:
+        raw["owner"] = owner
+    return await _ingest(raw)
 
 
 @app.post("/api/collector/plain")
-async def collector_plain(request: Request):
+async def collector_plain(request: Request, authorization: str | None = Header(None)):
     """纯文本采集入口（Power Automate 免拼 JSON 专用）。
     Body 即消息内容（text/plain）；可选首行写 `发送人@会话名`，
     不写则默认发送人=微信-RPA采集、会话=微信。"""
@@ -600,8 +624,10 @@ async def collector_plain(request: Request):
         content = "\n".join(lines[1:]).strip()
     else:
         content = text
+    owner = _current_account(authorization)
     return await _ingest({"platform": "wechat", "sender": sender,
-                          "chat": chat, "content": content})
+                          "chat": chat, "content": content,
+                          **({"owner": owner} if owner else {})})
 
 
 async def _ingest(raw: dict) -> dict:
@@ -629,18 +655,21 @@ class SyncReq(BaseModel):
 
 
 @app.post("/api/collector/sync")
-async def collector_sync(req: SyncReq):
+async def collector_sync(req: SyncReq, authorization: str | None = Header(None)):
     """手动同步一条平台消息（演示「平台 → 统一入口」接收闭环）。
     正式环境此链路由平台事件订阅回调触发（钉钉）或 RPA 采集（微信），
     本地 localhost 无法被钉钉公网回调触达，故提供本手动入口兜底演示。"""
     if not req.content.strip():
         raise HTTPException(400, "消息内容不能为空")
+    owner = _current_account(authorization)
     raw = {
         "platform": req.platform if req.platform in CONNECTORS else "dingtalk",
         "sender": req.sender.strip() or "钉钉群-成员",
         "chat": req.chat.strip() or "钉钉群",
         "content": req.content.strip(),
     }
+    if owner:
+        raw["owner"] = owner
     return await _ingest(raw)
 
 

@@ -245,6 +245,10 @@
 .fault-btn.on { color: var(--danger); background: var(--danger-soft); }
 .fault-btn.on svg { animation: faultPulse 1.4s ease-in-out infinite; }
 @keyframes faultPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* 语音输入：监听中高亮（红色脉动，参考微信按住说话） */
+.tool-btn.listening { color: var(--danger); background: var(--danger-soft); }
+.tool-btn.listening svg { animation: faultPulse 1.2s ease-in-out infinite; }
 .tool-spring { flex: 1; }
 
 /* 格式转换提示（工具栏右侧一行小字） */

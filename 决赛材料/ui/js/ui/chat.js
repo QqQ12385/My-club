@@ -266,11 +266,83 @@ function handleTool(name) {
     $("fileInput").click();
     return;
   }
+  if (name === "voice") {          // 语音输入：浏览器语音识别转文字（Web Speech API）
+    toggleVoiceInput();
+    return;
+  }
   const tips = {
     screenshot: "演示环境：截图能力依赖各平台客户端，统一入口保留该扩展位",
-    voice: "演示环境：语音输入依赖各平台客户端，统一入口保留该扩展位",
   };
   toast(tips[name] || "该能力在演示环境中未启用");
+}
+
+/* ---------- 语音输入（Web Speech API：语音 → 文字填入输入框）----------
+   点击语音按钮开始识别，再次点击/结束自动停；识别结果写入输入框后照常发送。
+   浏览器不支持（如部分非 Chrome）时 toast 提示降级。 */
+let voiceRec = null;       // SpeechRecognition 实例
+let voiceActive = false;   // 是否正在监听
+
+function toggleVoiceInput() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    toast("当前浏览器不支持语音识别，请使用 Chrome/Edge 打开，或改用文字输入");
+    return;
+  }
+  if (voiceActive) { stopVoiceInput(); return; }
+
+  try {
+    voiceRec = new SR();
+    voiceRec.lang = "zh-CN";
+    voiceRec.interimResults = false;
+    voiceRec.maxAlternatives = 1;
+
+    voiceRec.onstart = () => {
+      voiceActive = true;
+      const btn = document.querySelector('[data-tool="voice"]');
+      if (btn) btn.classList.add("listening");
+      toast("🎤 正在聆听，请说话…（再次点击结束）");
+    };
+    voiceRec.onresult = (e) => {
+      let text = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) text += e.results[i][0].transcript;
+      }
+      if (text) {
+        const input = $("chatInput");
+        // 已有内容时补空格，避免粘连
+        input.value = (input.value ? input.value + " " : "") + text;
+        updateConvPreview(input.value.trim());
+        toast("已识别：" + text);
+      }
+    };
+    voiceRec.onerror = (e) => {
+      stopVoiceInput();
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        toast("麦克风权限被拒绝，请在浏览器地址栏允许麦克风权限");
+      } else if (e.error !== "no-speech") {
+        toast("语音识别失败：" + (e.error || "未知错误"));
+      }
+    };
+    voiceRec.onend = () => {
+      if (voiceActive) {   // 非手动停止时刷新按钮态
+        stopVoiceInput();
+      }
+    };
+    voiceRec.start();
+  } catch (e) {
+    toast("无法启动语音识别：" + (e.message || "请检查麦克风"));
+    stopVoiceInput();
+  }
+}
+
+function stopVoiceInput() {
+  voiceActive = false;
+  if (voiceRec) {
+    try { voiceRec.stop(); } catch { /* 忽略 */ }
+    voiceRec = null;
+  }
+  const btn = document.querySelector('[data-tool="voice"]');
+  if (btn) btn.classList.remove("listening");
 }
 
 /* ---------- 文件发送（真实接口）----------

@@ -28,13 +28,14 @@ def normalize_incoming(raw: dict) -> dict:
     mid = f"m{uuid.uuid4().hex[:8]}"
     content = raw["content"]
     mtype = "todo" if "【待办】" in content else "text"
+    owner = raw.get("owner") or "gary"   # 消息归属账号（默认管理员 gary）
 
     db.execute(
         "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
-        "status,unread,pinned,muted,dedup_key,conv_id,created_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?, 'received',1,0,0,?,?,?)",
+        "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?, 'received',1,0,0,?,?,?,?)",
         (mid, platform, raw.get("msg_key"), raw["sender"], raw.get("chat") or platform,
-         t, now_day, mtype, content, dedup, raw.get("conv_id"), time.time()))
+         t, now_day, mtype, content, dedup, raw.get("conv_id"), owner, time.time()))
     db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
                " VALUES(?,?,?,?,?,?)", (mid, "them", content, t, None, None))
     db.add_trace(mid, "已接收", f"来自{platform}（{raw['sender']}）")
@@ -42,6 +43,6 @@ def normalize_incoming(raw: dict) -> dict:
     message = {
         "id": mid, "platform": platform, "sender": raw["sender"],
         "chat": raw.get("chat") or platform, "time": t, "day": now_day,
-        "type": mtype, "content": content, "status": "received",
+        "type": mtype, "content": content, "status": "received", "owner": owner,
     }
     return {"duplicated": False, "id": mid, "message": message}

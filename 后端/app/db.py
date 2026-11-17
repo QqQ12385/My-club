@@ -39,6 +39,7 @@ def init_db():
                 muted INTEGER DEFAULT 0,
                 dedup_key TEXT UNIQUE,           -- RPA无ID时: sender+time+content哈希
                 conv_id TEXT,                   -- 钉钉 openConversationId（回发消息用）
+                owner TEXT NOT NULL DEFAULT 'gary',  -- 消息归属账号（多用户数据隔离）
                 created_at REAL
             );
             CREATE TABLE IF NOT EXISTS thread (
@@ -89,6 +90,9 @@ def init_db():
         cols = [r[1] for r in _conn.execute("PRAGMA table_info(messages)").fetchall()]
         if "conv_id" not in cols:
             _conn.execute("ALTER TABLE messages ADD COLUMN conv_id TEXT")
+        # 迁移：老库补 owner 列（多用户数据隔离）
+        if "owner" not in cols:
+            _conn.execute("ALTER TABLE messages ADD COLUMN owner TEXT NOT NULL DEFAULT 'gary'")
 
 
 def query(sql: str, args: tuple = ()) -> list:
@@ -121,6 +125,7 @@ def msg_to_dict(r) -> dict:
         "pinned": bool(r["pinned"]),
         "muted": bool(r["muted"]),
         "convId": r["conv_id"] if "conv_id" in r.keys() else "",
+        "owner": r["owner"] if "owner" in r.keys() else "gary",
     }
 
 
