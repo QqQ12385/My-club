@@ -957,7 +957,9 @@ async def send_file(mid: str, file: UploadFile = File(...), authorization: str |
             crow = db.query("SELECT chat FROM contacts WHERE platform='user' AND name=? AND owner=?",
                             (msg["sender"], _current_account(authorization) or "gary"))
             to_account = crow[0]["chat"] if crow else ""
-        if not to_user or to_user["account"] == (me_account := _current_account(authorization) or "gary"):
+        me_account = _current_account(authorization) or "gary"
+        to_user = db.get_user_by_account(to_account)
+        if not to_user or to_user["account"] == me_account:
             raise HTTPException(404, "未能确定站内好友账号，请先通过联系人添加好友后重试")
         me_user = db.get_user_by_account(me_account)
         my_name = me_user["name"] if me_user else "我"
