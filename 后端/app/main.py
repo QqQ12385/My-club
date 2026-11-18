@@ -845,7 +845,7 @@ def users_directory(authorization: str | None = Header(None)):
 
 
 @app.post("/api/contacts/add")
-def friend_add(req: FriendAddReq, authorization: str | None = Header(None)):
+async def friend_add(req: FriendAddReq, authorization: str | None = Header(None)):
     """添加好友：记录到联系人表（平台 + 显示名 + 会话名）。
     platform=user 表示站内好友：chat 字段存对方账号，发消息走站内信。"""
     if not req.name.strip():
