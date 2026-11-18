@@ -172,13 +172,14 @@ function renderChatHead(msg) {
 const IMG_NAME_RE = /\.(png|jpe?g|gif|webp|bmp|svg)\s*$/i;
 
 function isImageBubble(t) {
-  return !!t.fileId && IMG_NAME_RE.test((t.text || "").replace(/^\[文件\]\s*/, ""));
+  // 文本形如 "📎 [文件] xxx.png"，直接按扩展名判断（不管前缀长什么样）
+  return !!t.fileId && IMG_NAME_RE.test((t.text || "").trim());
 }
 
 function bubbleFileHtml(t) {
   if (!t.fileId) return t.text;
   const dl = `${API_BASE}/files/${t.fileId}?download=1`;
-  const name = (t.text || "").replace(/^\[文件\]\s*/, "");
+  const name = (t.text || "").replace(/^\s*📎?\s*/,"").replace(/^\[文件\]\s*/, "");
   if (isImageBubble(t)) {
     return `<img class="bubble-img" src="${API_BASE}/files/${t.fileId}" alt="${name}"
               data-fid="${t.fileId}" data-name="${name}" title="点击查看大图">
