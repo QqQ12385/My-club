@@ -901,11 +901,16 @@ async def send_file(mid: str, file: UploadFile = File(...), authorization: str |
     now = time.strftime("%H:%M")
     if msg["platform"] == "user":
         # 站内好友发文件：走站内信双写（收件人视角 them + 发件人视角 me），同一 file_id 两边可下载
-        to_account = msg.get("owner")  # 该消息归属即对方账号（收件人视角的消息 owner=对方）
-        to_user = db.get_user_by_account(to_account or "")
-        if not to_user:
-            raise HTTPException(404, "站内好友的账号不存在")
-        me_user = db.get_user_by_account(_current_account(authorization) or "gary")
+        # 站内好友发文件：收件人 = 会话里的对方（conv_id=user:账号 或联系人表），不能用消息归属人（那是自己）
+        to_account = (msg.get("convId") or msg.get("conv_id") or "").split(":")[-1].strip()
+        if not to_account or to_account == _current_account(authorization):
+            # 回退：按平台+发送人名在联系人表里找
+            crow = db.query("SELECT chat FROM contacts WHERE platform='user' AND name=? AND owner=?",
+                            (msg["sender"], _current_account(authorization) or "gary"))
+            to_account = crow[0]["chat"] if crow else ""
+        if not to_user or to_user["account"] == (me_account := _current_account(authorization) or "gary"):
+            raise HTTPException(404, "未能确定站内好友账号，请先通过联系人添加好友后重试")
+        me_user = db.get_user_by_account(me_account)
         my_name = me_user["name"] if me_user else "我"
         # 对方收到：在对方名下落一条「收到文件」消息
         mid_in = f"m{uuid.uuid4().hex[:8]}"

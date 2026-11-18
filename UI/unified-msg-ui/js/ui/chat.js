@@ -534,7 +534,10 @@ async function handleFileSend(file) {
       }, 2500);
     } else {
       bubble.sendStatus = "failed";
-      bubble.failReason = data.reason || "文件发送失败";
+      const d = data.detail;
+      bubble.failReason = data.reason
+        || (typeof d === "string" ? d : (d && (d.msg || d[0] && (d[0].msg || d[0].msgvalue))) )
+        || `发送失败（HTTP ${resp.status}）`;
       msg.status = "failed";
       addTrace(msg.id, "发送失败", `文件发送失败：${bubble.failReason}`);
       renderAll();
