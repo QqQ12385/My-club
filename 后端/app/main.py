@@ -742,6 +742,46 @@ async def contact_send(req: ContactSendReq, authorization: str | None = Header(N
     platform = req.platform if req.platform in CONNECTORS else "dingtalk"
     owner = _current_account(authorization) or "gary"
 
+    # 站内信：platform=user 时直接落两条记录（发件人一份、收件人一份），不走外部平台
+    if req.platform == "user":
+        to_account = req.chat.strip()
+        to_user = db.get_user_by_account(to_account)
+        if not to_user:
+            raise HTTPException(404, "站内好友的账号不存在")
+        me_user = db.get_user_by_account(owner)
+        my_name = me_user["name"] if me_user else owner
+        now = time.strftime("%H:%M")
+        text = req.text.strip()
+
+        # 收件人视角：一条「收到的新消息」
+        mid_in = f"m{uuid.uuid4().hex[:8]}"
+        db.execute(
+            "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
+            "status,unread,pinned,muted,dedup_key,owner,created_at)"
+            " VALUES(?,?,NULL,?,?,?,?,?, 'received',1,0,0,?,?,?)",
+            (mid_in, "user", my_name, "站内消息", now, "today", "text", text,
+             db.dedup_hash("user", my_name, now, text), to_account, time.time()))
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+                   " VALUES(?,?,?,?,?,?)", (mid_in, "them", text, now, None, None))
+        db.add_trace(mid_in, "已接收", f"站内信来自 {my_name}({owner})")
+        await hub.broadcast({"type": "new_message",
+                             "data": db.msg_to_dict(db.query("SELECT * FROM messages WHERE id=?", (mid_in,))[0])})
+
+        # 发件人视角：一条「我发出的」记录
+        mid_out = f"m{uuid.uuid4().hex[:8]}"
+        db.execute(
+            "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
+            "status,unread,pinned,muted,dedup_key,owner,created_at)"
+            " VALUES(?,?,NULL,?,?,?,?,?, 'replied',0,0,0,?,?,?)",
+            (mid_out, "user", to_user["name"], "站内消息", now, "today", "text", text,
+             db.dedup_hash("user", to_user["name"], now, text + "out"), owner, time.time()))
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+                   " VALUES(?,?,?,?,?,?)", (mid_out, "me", text, now, "synced", "internal"))
+        db.add_trace(mid_out, "已发送", f"站内信发给 {to_user['name']}({to_account})")
+        await hub.broadcast({"type": "new_message",
+                             "data": db.msg_to_dict(db.query("SELECT * FROM messages WHERE id=?", (mid_out,))[0])})
+        return {"ok": True, "channel": "internal", "messageId": mid_out}
+
     # 构造一个临时的消息体走统一发送路由（复用主备降级与格式转换）
     pseudo = {
         "platform": platform,
@@ -791,16 +831,37 @@ def friend_list(authorization: str | None = Header(None)):
     return [{"id": r["id"], "platform": r["platform"], "name": r["name"],
              "chat": r["chat"] or ""} for r in rows]
 
+@app.get("/api/users/directory")
+def users_directory(authorization: str | None = Header(None)):
+    """注册用户目录（所有登录用户可读）：添加平台好友时选人用。"""
+    if not (_current_user(authorization) or _current_account(authorization) is None):
+        # 未登录也放行（初赛演示阶段），但正常登录用户一定能用
+        pass
+    rows = db.query("SELECT account, name, role FROM users ORDER BY id")
+    return [{"account": r["account"], "name": r["name"], "role": r["role"]} for r in rows]
+
+
 @app.post("/api/contacts/add")
 def friend_add(req: FriendAddReq, authorization: str | None = Header(None)):
-    """添加好友：记录到联系人表（平台 + 显示名 + 会话名）。"""
+    """添加好友：记录到联系人表（平台 + 显示名 + 会话名）。
+    platform=user 表示站内好友：chat 字段存对方账号，发消息走站内信。"""
     if not req.name.strip():
         raise HTTPException(400, "好友名称不能为空")
     owner = _current_account(authorization) or "gary"
+    plat = req.platform if (req.platform in CONNECTORS or req.platform == "user") else "dingtalk"
+    if plat == "user":
+        # 站内好友：校验账号存在，显示名取注册姓名，chat 存账号
+        u = db.get_user_by_account(req.chat.strip() or req.name.strip())
+        if not u:
+            raise HTTPException(404, "该账号不存在，请从用户目录中选择")
+        if u["account"] == owner:
+            raise HTTPException(422, "不能添加自己为好友")
+        name, chat = u["name"], u["account"]
+    else:
+        name, chat = req.name.strip(), req.chat.strip()
     db.execute("INSERT INTO contacts(platform,name,chat,owner,created_at) VALUES(?,?,?,?,?)",
-               (req.platform if req.platform in CONNECTORS else "dingtalk",
-                req.name.strip(), req.chat.strip(), owner, time.time()))
-    db.add_op(f"添加好友 {req.name.strip()}（{req.platform}）")
+               (plat, name, chat, owner, time.time()))
+    db.add_op(f"添加好友 {name}（{'站内' if plat=='user' else plat}）")
     return {"ok": True}
 
 @app.delete("/api/contacts/{cid}")

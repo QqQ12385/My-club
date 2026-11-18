@@ -488,10 +488,31 @@ function openFriendAdd() {
   $("friendNameInput").value = "";
   $("friendChatInput").value = "";
   $("friendPlatformSelect").value = "dingtalk";
+  toggleFriendPlatformUI("dingtalk");
   const layer = $("friendAddLayer");
   layer.hidden = false;
   layer.classList.add("show");
   setTimeout(() => $("friendNameInput").focus(), 80);
+}
+
+/* 选「站内好友」时切换为从注册用户目录选人；其他平台为手动填写 */
+function toggleFriendPlatformUI(platform) {
+  const isUser = platform === "user";
+  $("friendUserPick").hidden = !isUser;
+  $("friendManualName").hidden = isUser;
+  $("friendManualChat").hidden = isUser;
+  if (isUser && !$("friendUserSelect").dataset.loaded) {
+    fetch(`${API_BASE}/users/directory`, {
+      headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
+    }).then(r => r.json()).then(users => {
+      $("friendUserSelect").innerHTML = users
+        .map(u => `<option value="${u.account}">${u.name}（${u.account}${u.role === "admin" ? " · 管理员" : ""}）</option>`)
+        .join("");
+      $("friendUserSelect").dataset.loaded = "1";
+    }).catch(() => {
+      $("friendUserSelect").innerHTML = `<option value="">目录加载失败</option>`;
+    });
+  }
 }
 
 function closeFriendAdd() {
@@ -501,10 +522,17 @@ function closeFriendAdd() {
 }
 
 async function submitFriendAdd() {
-  const name = $("friendNameInput").value.trim();
-  if (!name) { toast("请输入好友名称"); return; }
   const platform = $("friendPlatformSelect").value;
-  const chat = $("friendChatInput").value.trim();
+  let name = $("friendNameInput").value.trim();
+  let chat = $("friendChatInput").value.trim();
+  if (platform === "user") {
+    const acc = $("friendUserSelect").value;
+    if (!acc) { toast("请选择要添加的注册用户"); return; }
+    chat = acc;
+    const m = $("friendUserSelect").selectedOptions[0]?.textContent.match(/^(.+?)（/);
+    name = m ? m[1] : acc;
+  }
+  if (!name) { toast("请输入好友名称"); return; }
   const btn = $("friendAddBtn2");
   btn.disabled = true;
   btn.textContent = "添加中…";
@@ -520,7 +548,7 @@ async function submitFriendAdd() {
     const data = await resp.json();
     if (data.ok) {
       closeFriendAdd();
-      toast(`已添加好友：${name}`);
+      toast(`已添加好友：${name}${platform === "user" ? "（站内，可互发消息）" : ""}`);
       if (typeof loadBackendData === "function") await loadBackendData();
       renderContactTabPanel();
       if (state.view === "contacts") renderContacts();
@@ -606,6 +634,7 @@ async function deleteFriend(id, name) {
   if (fab) fab.onclick = openFriendAdd;
   $("closeFriendAdd").onclick = closeFriendAdd;
   $("friendAddBtn2").onclick = submitFriendAdd;
+  $("friendPlatformSelect").onchange = (e) => toggleFriendPlatformUI(e.target.value);
   $("friendNameInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); submitFriendAdd(); }
   });

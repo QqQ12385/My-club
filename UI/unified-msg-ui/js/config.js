@@ -7,6 +7,7 @@ const PLATFORMS = {
   all:      { name: "全部" },
   wechat:   { name: "微信", short: "微" },
   dingtalk: { name: "钉钉", short: "钉" },
+  user:     { name: "站内好友", short: "友" },
 };
 
 // 消息状态名称（业务闭环：已接收 → 已回复 → 已同步到平台）
