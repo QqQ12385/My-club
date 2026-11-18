@@ -757,10 +757,11 @@ async def contact_send(req: ContactSendReq, authorization: str | None = Header(N
         mid_in = f"m{uuid.uuid4().hex[:8]}"
         db.execute(
             "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
-            "status,unread,pinned,muted,dedup_key,owner,created_at)"
-            " VALUES(?,?,NULL,?,?,?,?,?, 'received',1,0,0,?,?,?)",
-            (mid_in, "user", my_name, "站内消息", now, "today", "text", text,
-             db.dedup_hash("user", my_name, now, text), to_account, time.time()))
+            "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mid_in, "user", None, my_name, "站内消息", now, "today", "text", text,
+             "received", 1, 0, 0, db.dedup_hash("user", my_name, now, text),
+             f"user:{to_account}", to_account, time.time()))
         db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
                    " VALUES(?,?,?,?,?,?)", (mid_in, "them", text, now, None, None))
         db.add_trace(mid_in, "已接收", f"站内信来自 {my_name}({owner})")
@@ -771,10 +772,11 @@ async def contact_send(req: ContactSendReq, authorization: str | None = Header(N
         mid_out = f"m{uuid.uuid4().hex[:8]}"
         db.execute(
             "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
-            "status,unread,pinned,muted,dedup_key,owner,created_at)"
-            " VALUES(?,?,NULL,?,?,?,?,?, 'replied',0,0,0,?,?,?)",
-            (mid_out, "user", to_user["name"], "站内消息", now, "today", "text", text,
-             db.dedup_hash("user", to_user["name"], now, text + "out"), owner, time.time()))
+            "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mid_out, "user", None, to_user["name"], "站内消息", now, "today", "text", text,
+             "replied", 0, 0, 0, db.dedup_hash("user", to_user["name"], now, text + "out"),
+             f"user:{to_account}", owner, time.time()))
         db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
                    " VALUES(?,?,?,?,?,?)", (mid_out, "me", text, now, "synced", "internal"))
         db.add_trace(mid_out, "已发送", f"站内信发给 {to_user['name']}({to_account})")
@@ -800,9 +802,10 @@ async def contact_send(req: ContactSendReq, authorization: str | None = Header(N
         db.execute(
             "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
             "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
-            " VALUES(?,?,NULL,?,?,?,?,?,?, 'replied',0,0,0,?,?,?,?)",
-            (mid, platform, req.sender.strip(), req.chat.strip() or platform, now, "today",
-             "text", req.text.strip(), dedup, req.conv_id.strip(), owner, time.time()))
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mid, platform, None, req.sender.strip(), req.chat.strip() or platform, now, "today",
+             "text", req.text.strip(), "replied", 0, 0, 0, dedup,
+             req.conv_id.strip(), owner, time.time()))
         db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
                    " VALUES(?,?,?,?,?,?)", (mid, "me", req.text.strip(), now, "synced", result.channel))
         db.add_trace(mid, "已回复", f"主动发消息：{result.channel} 通道发送成功 → {req.sender}")
