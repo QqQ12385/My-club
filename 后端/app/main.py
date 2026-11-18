@@ -877,7 +877,7 @@ async def friend_delete(cid: int):
 
 # ------------------------------------------------------------------ 文件发送（功能需求第3条：发送文件）
 @app.post("/api/messages/{mid}/send-file")
-async def send_file(mid: str, file: UploadFile = File(...)):
+async def send_file(mid: str, file: UploadFile = File(...), authorization: str | None = Header(None)):
     """统一入口向指定平台发送文件。钉钉走机器人媒体上传+sampleFile 真实发送；
     微信无 API，走 RPA 通道（模拟）。状态流转与文本回复一致。"""
     row = db.query("SELECT * FROM messages WHERE id=?", (mid,))
@@ -899,6 +899,38 @@ async def send_file(mid: str, file: UploadFile = File(...)):
                (fid, mid, filename, len(content), str(stored), time.time()))
 
     now = time.strftime("%H:%M")
+    if msg["platform"] == "user":
+        # 站内好友发文件：走站内信双写（收件人视角 them + 发件人视角 me），同一 file_id 两边可下载
+        to_account = msg.get("owner")  # 该消息归属即对方账号（收件人视角的消息 owner=对方）
+        to_user = db.get_user_by_account(to_account or "")
+        if not to_user:
+            raise HTTPException(404, "站内好友的账号不存在")
+        me_user = db.get_user_by_account(_current_account(authorization) or "gary")
+        my_name = me_user["name"] if me_user else "我"
+        # 对方收到：在对方名下落一条「收到文件」消息
+        mid_in = f"m{uuid.uuid4().hex[:8]}"
+        db.execute(
+            "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
+            "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mid_in, "user", None, my_name, "站内消息", now, "today", "file",
+             f"📎 [文件] {filename}", "received", 1, 0, 0,
+             db.dedup_hash("user", my_name, now, filename), f"user:{to_account}",
+             to_account, time.time()))
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel,file_id)"
+                   " VALUES(?,?,?,?,?,?,?)",
+                   (mid_in, "them", f"📎 [文件] {filename}", now, "synced", "internal", fid))
+        await hub.broadcast({"type": "new_message",
+                             "data": db.msg_to_dict(db.query("SELECT * FROM messages WHERE id=?", (mid_in,))[0])})
+        # 我这边：当前会话追加 me 气泡
+        db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel,file_id)"
+                   " VALUES(?,?,?,?,?,?,?)",
+                   (mid, "me", f"📎 [文件] {filename}", now, "synced", "internal", fid))
+        db.execute("UPDATE messages SET status='replied', unread=0 WHERE id=?", (mid,))
+        db.add_trace(mid, "已回复", f"站内发送文件成功：{filename}")
+        await hub.broadcast({"type": "thread_update", "data": {"id": mid}})
+        return {"ok": True, "channel": "internal", "status": "replied"}
+
     if msg["platform"] == "dingtalk":
         conv_id = msg.get("convId") or msg.get("conv_id")
         if not conv_id:
