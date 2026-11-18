@@ -168,6 +168,57 @@ function renderChatHead(msg) {
   $("chatMute").title = isMuted(msg) ? "取消免打扰" : "开启免打扰";
 }
 
+/* ---------- 文件气泡渲染：图片直接显示缩略图（微信式），点击看大图；其他文件可下载 ---------- */
+const IMG_NAME_RE = /\.(png|jpe?g|gif|webp|bmp|svg)\s*$/i;
+
+function isImageBubble(t) {
+  return !!t.fileId && IMG_NAME_RE.test((t.text || "").replace(/^\[文件\]\s*/, ""));
+}
+
+function bubbleFileHtml(t) {
+  if (!t.fileId) return t.text;
+  const dl = `${API_BASE}/files/${t.fileId}?download=1`;
+  const name = (t.text || "").replace(/^\[文件\]\s*/, "");
+  if (isImageBubble(t)) {
+    return `<img class="bubble-img" src="${API_BASE}/files/${t.fileId}" alt="${name}"
+              data-fid="${t.fileId}" data-name="${name}" title="点击查看大图">
+            <a class="bubble-file" href="${dl}">${t.text}</a>`;
+  }
+  return `<a class="bubble-file" href="${dl}">${t.text}</a>`;
+}
+
+/* 微信式图片预览：点击缩略图弹出大图，可下载 */
+function openFilePreview(fid, name) {
+  let ov = $("filePreviewLayer");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "filePreviewLayer";
+    ov.className = "file-preview-layer";
+    ov.innerHTML = `
+      <div class="fp-box">
+        <div class="fp-head">
+          <span class="fp-name"></span>
+          <button class="fp-dl">下载</button>
+          <button class="fp-close" title="关闭">×</button>
+        </div>
+        <div class="fp-body"><img class="fp-img" alt=""></div>
+      </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov || e.target.classList.contains("fp-close")) closeFilePreview();
+    });
+  }
+  ov.querySelector(".fp-name").textContent = name || "图片预览";
+  ov.querySelector(".fp-img").src = `${API_BASE}/files/${fid}`;
+  ov.querySelector(".fp-dl").onclick = () => { window.location.href = `${API_BASE}/files/${fid}?download=1`; };
+  ov.classList.add("show");
+}
+
+function closeFilePreview() {
+  const ov = $("filePreviewLayer");
+  if (ov) ov.classList.remove("show");
+}
+
 /* ---------- 会话气泡（联系人合并视图：同一人的全部消息连续展示）---------- */
 function renderThread() {
   const msg = state.messages.find(m => m.id === state.currentMsgId);
@@ -194,9 +245,7 @@ function renderThread() {
         <div class="bubble-row me">
           <div class="bubble me-bubble ${t.sendStatus === "sending" ? "sending" : ""} ${failed ? "failed" : ""}">
             <div class="bubble-target">→ ${target}</div>
-            <div class="bubble-text">${t.fileId
-              ? `<a class="bubble-file" href="${API_BASE}/files/${t.fileId}" target="_blank" download>${t.text}</a>`
-              : t.text}</div>
+            <div class="bubble-text">${t.fileId ? bubbleFileHtml(t) : t.text}</div>
             ${failed ? `<div class="bubble-fail">发送失败 · ${t.failReason}</div>` : ""}
             <div class="bubble-status">
               ${stText ? stText + " · " : ""}${t.time}
@@ -216,9 +265,7 @@ function renderThread() {
       <div class="bubble-row them">
         <div class="avatar small"><span>${getAvatarText(msg.sender)}</span></div>
         <div class="bubble them-bubble ${t.recalled ? "recalled" : ""}">
-          <div class="bubble-text">${t.fileId
-            ? `<a class="bubble-file" href="${API_BASE}/files/${t.fileId}" target="_blank" download>${t.text}</a>`
-            : t.text}</div>
+          <div class="bubble-text">${t.fileId ? bubbleFileHtml(t) : t.text}</div>
           <div class="bubble-status">${t.time} ${delBtn}</div>
         </div>
       </div>`;
@@ -238,6 +285,11 @@ function renderThread() {
   // 撤回单条消息（标记为已撤回，保留痕迹）
   $("chatThread").querySelectorAll("[data-recall]").forEach(btn => {
     btn.onclick = () => recallThreadItem(thread[Number(btn.dataset.recall)]);
+  });
+
+  // 图片缩略图：点击弹出大图预览
+  $("chatThread").querySelectorAll(".bubble-img").forEach(img => {
+    img.onclick = () => openFilePreview(img.dataset.fid, img.dataset.name);
   });
 
   const box = $("chatThread");

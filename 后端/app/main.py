@@ -598,8 +598,10 @@ def get_thread(mid: str, authorization: str | None = Header(None)):
 
 
 @app.get("/api/files/{fid}")
-def download_file(fid: str):
-    """下载/在线打开统一入口发过的文件（磁盘持久化存储）。"""
+def download_file(fid: str, download: int = 0):
+    """下载/在线预览统一入口发过的文件（磁盘持久化存储）。
+    图片默认内联返回（网页气泡可直接显示缩略图、点击看大图）；
+    其他文件或 ?download=1 时按附件下载。"""
     rows = db.query("SELECT * FROM files WHERE id=?", (fid,))
     if not rows:
         raise HTTPException(404, "文件不存在")
@@ -607,7 +609,12 @@ def download_file(fid: str):
     p = Path(f["path"])
     if not p.is_file():
         raise HTTPException(404, "文件已丢失")
-    return FileResponse(p, filename=f["filename"])
+    name = (f["filename"] or "").lower()
+    if download or not name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg")):
+        return FileResponse(p, filename=f["filename"])
+    import mimetypes
+    mt = mimetypes.guess_type(f["filename"])[0] or "application/octet-stream"
+    return FileResponse(p, media_type=mt, headers={"Cache-Control": "max-age=3600"})
 
 
 @app.delete("/api/thread/{tid}")

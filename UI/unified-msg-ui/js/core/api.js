@@ -140,8 +140,16 @@ async function loadBackendData() {
     const appsData = appsResp.ok ? await appsResp.json() : null;
     const meData = meResp.ok ? await meResp.json() : null;
 
+    // 先应用个人资料（后面过滤要用「我的姓名」）
+    if (meData && meData.name) applyProfile(meData);
+    const myName = (state.profile && (state.profile.name || state.profile.cnName)) || "";
+
     // 1) 消息：后端真数据 → state.messages（字段与前端 mock 完全一致）
-    const msgs = (msgsData.messages || []).map(m => ({
+    //    管理员会看到自己发出消息的「对方收件副本」（sender=我的姓名），
+    //    会造成同一条消息出现白/橙两个气泡，这里过滤掉
+    const msgs = (msgsData.messages || [])
+      .filter(m => !(m.platform === "user" && myName && m.sender === myName))
+      .map(m => ({
       id: m.id, platform: m.platform, sender: m.sender, chat: m.chat || m.platform,
       time: m.time, day: m.day, type: m.type, content: m.content, status: m.status,
       unread: !!m.unread, pinned: !!m.pinned, muted: !!m.muted,
@@ -174,8 +182,7 @@ async function loadBackendData() {
       }));
     }
 
-    // 4) 个人资料：后端角色
-    if (meData && meData.name) applyProfile(meData);
+    // 4) 个人资料：后端角色（已在前面 applyProfile，这里不再重复）
 
     // 5) 会话上下文：按需懒加载（openChat 时 getThread 会请求，这里先清空缓存）
     state.threads = {};
@@ -200,6 +207,9 @@ function wsMsgForMe(m) {
 }
 
 function pushMessage(data) {
+  // 管理员视角：自己发出消息的「对方收件副本」（sender=我的姓名）不入列表，避免白/橙重复气泡
+  const myName = (state.profile && (state.profile.name || state.profile.cnName)) || "";
+  if (data.platform === "user" && myName && (data.sender || "") === myName) return;
   state.msgSeq++;
   const msg = {
     id: data.id || "m" + state.msgSeq,
