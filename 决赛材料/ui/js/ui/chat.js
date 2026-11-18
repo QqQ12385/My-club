@@ -164,6 +164,7 @@ function renderThread() {
   $("chatThread").innerHTML = thread.map((t, idx) => {
     if (t.from === "me") {
       const ch = t.channel || plan.primary;
+      const chDef = CHANNELS[ch] || { name: ch || "未知通道", short: ch || "?" };   // 未知通道兜底，避免渲染中断
       const failed = t.sendStatus === "failed";
       const stText = t.sendStatus === "sending" ? "发送中…"
         : t.sendStatus === "sent" ? "已发送，等待平台回执"
@@ -178,7 +179,7 @@ function renderThread() {
             ${failed ? `<div class="bubble-fail">发送失败 · ${t.failReason}</div>` : ""}
             <div class="bubble-status">
               ${stText ? stText + " · " : ""}${t.time}
-              <span class="ch-tag ${ch}" title="经${CHANNELS[ch].name}发送">${CHANNELS[ch].short}</span>
+              <span class="ch-tag ${ch}" title="经${chDef.name}发送">${chDef.short}</span>
             </div>
             ${failed ? `
               <div class="bubble-actions">

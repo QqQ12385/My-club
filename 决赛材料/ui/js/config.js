@@ -44,11 +44,13 @@ const QUICK_REPLIES = [
 const CHANNELS = {
   api: { name: "API 通道", short: "API" },
   rpa: { name: "RPA 通道", short: "RPA" },
+  internal: { name: "站内通道", short: "站内" },
 };
 
 const CHANNEL_PLAN = {
   wechat:   { primary: "rpa", backup: "api" },  // 个人号无开放接口，RPA 为主
   dingtalk: { primary: "api", backup: "rpa" },
+  user:     { primary: "internal", backup: "api" },
 };
 
 /* 演示用：故障演练时给出的失败原因（真实环境由后端/连接器回报） */
