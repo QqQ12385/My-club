@@ -644,12 +644,24 @@ async function deleteFriend(id, name) {
     if (e.target === $("friendAddLayer")) closeFriendAdd();
   });
 
-/* 站内好友：优先打开与 123 一样的完整聊天页（有历史消息时） */
-function openUserChat(name) {
-  const msg = state.messages.find(m => m.platform === "user" && m.sender === name);
+/* 站内好友：优先打开与 123 一样的完整聊天页（有历史消息时）。
+   站内会话 key 是 user|对方姓名；同时兼容「联系人显示名」与「账号」两种情况。 */
+function openUserChat(name, conv) {
+  // 先用 conv_id（user:账号）反查对方姓名，再退回显示名直接匹配
+  const msg = state.messages.find(m =>
+    m.platform === "user" && (
+      (conv && m.convId === conv) ||
+      m.sender === name ||
+      (m.convId && m.convId === `user:${name}`)
+    ));
   if (!msg) return false;
+  // 清除可能残留的筛选，确保消息列表能看到这条会话
+  state.filter = "all";
+  state.statusFilter = "all";
+  state.keyword = "";
+  const kw = $("searchInput"); if (kw) kw.value = "";
   switchTab("messages");
-  openChat(msg.id);
+  openContact(contactKeyOf(msg));
   const input = $("chatInput");
   if (input) input.focus();
   return true;
@@ -662,7 +674,7 @@ function openUserChat(name) {
     if (del) { deleteFriend(del.dataset.delFriend, del.dataset.name); return; }
     const send = e.target.closest("[data-send-contact]");
     if (send) {
-      if (send.dataset.platform === "user" && openUserChat(send.dataset.sendContact)) return;
+      if (send.dataset.platform === "user" && openUserChat(send.dataset.sendContact, send.dataset.conv)) return;
       openContactSend({
         sender: send.dataset.sendContact,
         platform: send.dataset.platform,
@@ -699,7 +711,7 @@ function openUserChat(name) {
     if (del) { deleteFriend(del.dataset.delFriend, del.dataset.name); return; }
     const send = e.target.closest("[data-send-contact]");
     if (send) {
-      if (send.dataset.platform === "user" && openUserChat(send.dataset.sendContact)) return;
+      if (send.dataset.platform === "user" && openUserChat(send.dataset.sendContact, send.dataset.conv)) return;
       openContactSend({
         sender: send.dataset.sendContact,
         platform: send.dataset.platform,
