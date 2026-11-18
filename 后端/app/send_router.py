@@ -10,6 +10,7 @@ from . import db
 DEFAULT_PLAN = {
     "wechat":   {"primary": "rpa",   "backup": "api"},
     "dingtalk": {"primary": "api",   "backup": "rpa"},
+    "feishu":   {"primary": "api",   "backup": "rpa"},
 }
 
 FAULT_INJECT = False   # 故障演练：置 True 后下一次发送必定失败
@@ -54,6 +55,16 @@ async def _send_via(channel: str, msg: dict, text: str) -> SendResult:
                 return SendResult(False, r["reason"])
             # 无 conv_id（种子消息/老消息）→ 走 Webhook
             return await dingtalk.send(payload, reply_to=msg.get("sender"), chat=msg.get("chat"))
+        if msg["platform"] == "feishu":
+            # 飞书：企业自建应用 OpenAPI 真发（chat_id 存在 conv_id）
+            conv_id = msg.get("convId") or msg.get("conv_id")
+            if conv_id:
+                from . import feishu_stream_connector as fs
+                r = await fs.send_message(conv_id, _prefix_reply_to(text, msg.get("sender"), msg.get("chat")))
+                if r["ok"]:
+                    return SendResult(True)
+                return SendResult(False, r["reason"])
+            return SendResult(False, "该消息无飞书会话ID（chat_id），无法真实回发")
         # 微信 API 通道：个人号无接口，直接失败（触发降级）
         return SendResult(False, "微信个人号无开放API，请走RPA通道")
     else:  # rpa

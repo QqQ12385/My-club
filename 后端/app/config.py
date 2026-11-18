@@ -23,6 +23,10 @@ class Settings:
     DINGTALK_LOGIN_REDIRECT = os.getenv("DINGTALK_LOGIN_REDIRECT",
                                         "http://localhost:8080/api/auth/dingtalk/callback")
 
+    # 飞书企业自建应用（长连接模式，可收可发）
+    FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
+    FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+
     RPA_MODE = os.getenv("RPA_MODE", "simulated")
     RPA_FLOW_URL = os.getenv("RPA_FLOW_URL", "")
 

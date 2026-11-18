@@ -29,6 +29,7 @@ from .normalize import normalize_incoming   # 归一化层
 from .send_router import route_reply        # 发送路由（主备降级）
 from .ws import hub
 from . import dingtalk_stream_connector as dt_stream   # 钉钉企业内部应用（Stream 双向收发）
+from . import feishu_stream_connector as fs_stream     # 飞书企业自建应用（长连接双向收发）
 from . import dingtalk_oauth as dt_oauth                # 钉钉扫码登录（OAuth 授权登录）
 
 app = FastAPI(title="统一消息管理后端", version="1.0.0")
@@ -47,6 +48,10 @@ APPS_SEED = [
      "org": "星辰科技 · 钉钉组织", "last_sync": "", "success_rate": "100%",
      "since": "2024-04-15",
      "note": "企业内部机器人 · Webhook回调" + ("（模拟模式）" if dingtalk.simulated else "")},
+    {"key": "feishu", "connected": 1, "account": "飞书自建应用",
+     "org": "飞书组织 · 长连接接入", "last_sync": "", "success_rate": "100%",
+     "since": "2024-05-20",
+     "note": "企业自建应用 · WebSocket长连接" + ("（已配置）" if fs_stream.is_configured() else "（待配置AppID/Secret）")},
 ]
 
 PROFILE_DEFAULT = {
@@ -179,6 +184,102 @@ def _start_dingtalk_stream():
     dt_stream.start_in_background()
 
 
+# ---------------- 飞书：入站消息处理 ----------------
+log_fs = logging.getLogger("feishu-ingest")
+
+
+def _on_feishu_message(item: dict) -> None:
+    """飞书长连接收到 im.message.receive_v1 事件：归一化入库 + WS 推送。
+    文本消息直接入库；图片/文件消息先拉取字节留档再入库（可预览/下载）。"""
+    try:
+        async def _run():
+            mtype = item.get("message_type", "text")
+            if mtype == "text":
+                text = fs_stream._extract_text(item.get("content", ""))
+                if not text:
+                    return
+                raw = {"platform": "feishu",
+                       "sender": item.get("sender_name") or item.get("open_id") or "飞书用户",
+                       "chat": "飞书群聊" if item.get("chat_type") == "group" else "飞书单聊",
+                       "content": text,
+                       "msg_key": item.get("message_id"),
+                       "conv_id": item.get("chat_id") or ""}
+                await _ingest(raw)
+            elif mtype in ("image", "file", "audio", "media"):
+                await _ingest_feishu_file(item)
+            else:
+                log_fs.info("暂不处理的飞书消息类型: %s", mtype)
+        asyncio.run_coroutine_threadsafe(_run(), _main_loop)
+    except Exception as e:
+        log_fs.exception("飞书消息入站处理异常: %s", e)
+
+
+async def _ingest_feishu_file(item: dict) -> None:
+    """接收飞书图片/文件消息：下载资源 → 本地留档 → 归一化入库（气泡可预览/下载）。"""
+    import json as _json
+    try:
+        content = item.get("content", "{}")
+        try:
+            cdata = _json.loads(content) if isinstance(content, str) else content
+        except Exception:
+            cdata = {}
+        msg_id = item.get("message_id") or ""
+        if item.get("message_type") == "image":
+            file_key = (cdata.get("image") or {}).get("image_key") or ""
+            filename = f"飞书图片-{time.strftime('%H%M%S')}.png"
+            res_type = "image"
+        else:
+            fnode = cdata.get("file") or cdata.get("audio") or cdata.get("media") or {}
+            file_key = fnode.get("file_key") or ""
+            filename = fnode.get("file_name") or f"飞书文件-{time.strftime('%H%M%S')}.bin"
+            res_type = "file"
+        if not (msg_id and file_key):
+            log_fs.warning("飞书文件消息缺少 message_id/file_key: %s", item)
+            return
+        dl = await fs_stream.download_resource(msg_id, file_key, res_type)
+        if not dl["ok"]:
+            log_fs.error("飞书文件下载失败：%s", dl["reason"])
+            raw = {"platform": "feishu", "sender": item.get("sender_name") or "飞书用户",
+                   "chat": "飞书群聊" if item.get("chat_type") == "group" else "飞书单聊",
+                   "content": f"📎 [文件] {filename}（下载失败：{dl['reason']}）",
+                   "msg_key": msg_id, "conv_id": item.get("chat_id") or ""}
+            await _ingest(raw)
+            return
+        sender = item.get("sender_name")
+        if not sender and item.get("open_id"):
+            sender = await fs_stream.get_user_name(item["open_id"]) or f"飞书用户{item['open_id'][-6:]}"
+        raw = {"platform": "feishu", "sender": sender or "飞书用户",
+               "chat": "飞书群聊" if item.get("chat_type") == "group" else "飞书单聊",
+               "content": f"📎 [文件] {filename}",
+               "msg_key": msg_id, "conv_id": item.get("chat_id") or ""}
+        result = await _ingest(raw)
+        mid = result.get("id")
+        if not mid:
+            return
+        fid = uuid.uuid4().hex[:12]
+        updir = Path(__file__).resolve().parent / "uploads"
+        updir.mkdir(exist_ok=True)
+        stored = updir / f"{fid}_{filename}"
+        stored.write_bytes(dl["content"])
+        db.execute("INSERT INTO files(id, msg_id, filename, size, path, created_at) VALUES(?,?,?,?,?,?)",
+                   (fid, mid, filename, len(dl["content"]), str(stored), time.time()))
+        db.execute("UPDATE thread SET file_id=? WHERE id=(SELECT id FROM thread "
+                   "WHERE msg_id=? AND from_side='them' ORDER BY id DESC LIMIT 1)",
+                   (fid, mid))
+        db.add_trace(mid, "已接收文件", f"来自飞书的文件已留档：{filename}（{len(dl['content'])//1024}KB）")
+        await hub.broadcast({"type": "thread_update", "data": {"id": mid}})
+    except Exception as e:
+        log_fs.exception("飞书文件消息处理异常: %s", e)
+
+
+def _start_feishu_stream():
+    if not fs_stream.is_configured():
+        log_fs.info("未配置 FEISHU_APP_ID/SECRET，跳过飞书长连接")
+        return
+    fs_stream.set_message_handler(_on_feishu_message)
+    fs_stream.start_in_background()
+
+
 _main_loop: asyncio.AbstractEventLoop = None
 log_dt = logging.getLogger("dingtalk-ingest")
 
@@ -190,6 +291,7 @@ def startup():
     db.init_db()
     _seed_admin()
     _start_dingtalk_stream()
+    _start_feishu_stream()
     # 应用连接种子
     for a in APPS_SEED:
         db.execute(
@@ -1003,6 +1105,18 @@ async def send_file(mid: str, file: UploadFile = File(...), authorization: str |
             up = await dt.upload_media(filename, content)
             if up["ok"]:
                 sent = await dt.send_file(conv_id, up["mediaId"], filename)
+                result_ok, channel = sent["ok"], "api"
+                reason = sent.get("reason", "")
+            else:
+                result_ok, channel, reason = False, "api", up["reason"]
+    elif msg["platform"] == "feishu":
+        conv_id = msg.get("convId") or msg.get("conv_id")
+        if not conv_id:
+            result_ok, channel, reason = False, "api", "该消息无飞书chat_id，无法真实回发文件"
+        else:
+            up = await fs_stream.upload_file(filename, content)
+            if up["ok"]:
+                sent = await fs_stream.send_file(conv_id, up["fileKey"])
                 result_ok, channel = sent["ok"], "api"
                 reason = sent.get("reason", "")
             else:

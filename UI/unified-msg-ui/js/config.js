@@ -7,6 +7,7 @@ const PLATFORMS = {
   all:      { name: "全部" },
   wechat:   { name: "微信", short: "微" },
   dingtalk: { name: "钉钉", short: "钉" },
+  feishu:   { name: "飞书", short: "飞" },
   user:     { name: "站内好友", short: "友" },
 };
 
@@ -51,6 +52,7 @@ const CHANNELS = {
 const CHANNEL_PLAN = {
   wechat:   { primary: "rpa", backup: "api" },  // 个人号无开放接口，RPA 为主
   dingtalk: { primary: "api", backup: "rpa" },
+  feishu:   { primary: "api", backup: "rpa" },  // 飞书企业自建应用 · 长连接
   user:     { primary: "internal", backup: "api" },  // 站内好友走站内通道
 };
 
