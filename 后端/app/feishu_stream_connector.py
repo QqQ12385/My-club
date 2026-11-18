@@ -84,6 +84,40 @@ def _build_event_handler():
             .build())
 
 
+def _stub_pycryptodome():
+    """部分 Windows 环境的应用控制策略会拦截 pycryptodome 的原生 .pyd，
+    导致 `import lark_oapi` 直接失败。SDK 仅在「加密回调」场景才真正用 AES，
+    本项目不使用该场景，故在 Crypto 不可用时注入桩模块，保证 SDK 可导入。"""
+    try:
+        import Crypto  # noqa: F401
+        return
+    except Exception:
+        pass
+    import sys, types
+    try:
+        crypto = types.ModuleType("Crypto")
+        cipher = types.ModuleType("Crypto.Cipher")
+        aes_mod = types.ModuleType("Crypto.Cipher.AES")
+
+        class _AESStub:  # 占位：本项目不会真正调用
+            MODE_GCM = 12
+            MODE_CBC = 2
+
+            @staticmethod
+            def new(*args, **kwargs):
+                raise RuntimeError("pycryptodome 被系统策略拦截，且未使用加密回调，不应调用到此")
+
+        aes_mod.AES = _AESStub
+        cipher.AES = aes_mod
+        crypto.Cipher = cipher
+        sys.modules["Crypto"] = crypto
+        sys.modules["Crypto.Cipher"] = cipher
+        sys.modules["Crypto.Cipher.AES"] = aes_mod
+        log.warning("pycryptodome 不可用，已注入桩模块（不影响收发消息）")
+    except Exception as e:
+        log.warning("注入 Crypto 桩模块失败: %s", e)
+
+
 def _init_sdk():
     global _ws_client, _client_ready, _APP_ID, _APP_SECRET
     if _client_ready:
@@ -93,6 +127,7 @@ def _init_sdk():
     if not (_APP_ID and _APP_SECRET):
         _client_ready = True
         return None
+    _stub_pycryptodome()
     try:
         import lark_oapi as lark
     except Exception as e:
