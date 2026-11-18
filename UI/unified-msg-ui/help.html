@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>统一消息中心 · 功能说明</title>
+<style>
+  :root {
+    --hero-bg1: #1e1b4b; --hero-bg2: #312e81;
+    --accent: #4f46e5; --accent-soft: #eef2ff;
+    --text: #1f2937; --muted: #6b7280;
+    --card-bg: #ffffff; --page-bg: #f8fafc;
+    --border: #e5e7eb;
+    --good: #059669; --good-bg: #ecfdf5;
+    --warn: #b45309; --warn-bg: #fffbeb;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--text); background: var(--page-bg); }
+
+  /* ===== Hero ===== */
+  .hero { background: linear-gradient(135deg, var(--hero-bg1), var(--hero-bg2)); color: #fff; padding: 56px 48px 44px; }
+  .hero h1 { font-size: 34px; margin-bottom: 14px; letter-spacing: .5px; }
+  .hero p { max-width: 680px; line-height: 1.8; color: #c7d2fe; font-size: 14.5px; }
+  .hero .tags { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .hero .tag { border: 1px solid rgba(199,210,254,.4); border-radius: 999px; padding: 5px 14px; font-size: 12.5px; color: #e0e7ff; }
+
+  /* ===== 布局 ===== */
+  .layout { display: flex; max-width: 1200px; margin: 0 auto; padding: 32px 24px; gap: 28px; align-items: flex-start; }
+  nav.toc { position: sticky; top: 24px; width: 200px; flex-shrink: 0; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px 10px; }
+  nav.toc .toc-title { font-size: 12px; color: var(--muted); padding: 4px 12px 10px; }
+  nav.toc a { display: block; padding: 8px 12px; border-radius: 8px; font-size: 13.5px; color: var(--text); text-decoration: none; margin: 2px 0; }
+  nav.toc a:hover { background: var(--accent-soft); color: var(--accent); }
+  nav.toc a.active { background: var(--accent); color: #fff; }
+  main { flex: 1; min-width: 0; }
+
+  section.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 28px 30px; margin-bottom: 24px; }
+  section.card h2 { font-size: 20px; margin-bottom: 14px; }
+  section.card h2 .no { color: var(--accent); margin-right: 8px; }
+  section.card p { line-height: 1.9; font-size: 14px; color: #374151; margin-bottom: 10px; }
+  section.card b.k { color: var(--accent); }
+
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .duo .box { border-radius: 10px; padding: 16px 18px; font-size: 13.5px; line-height: 1.8; }
+  .duo .box h3 { font-size: 14px; margin-bottom: 8px; }
+  .duo .no  { background: var(--warn-bg); border: 1px solid #fde68a; } .duo .no h3 { color: var(--warn); }
+  .duo .yes { background: var(--good-bg); border: 1px solid #a7f3d0; } .duo .yes h3 { color: var(--good); }
+
+  .steps { counter-reset: s; margin: 10px 0; }
+  .steps li { list-style: none; position: relative; padding: 6px 0 6px 34px; font-size: 14px; line-height: 1.7; }
+  .steps li::before { counter-increment: s; content: counter(s); position: absolute; left: 0; top: 7px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 12px 0; }
+  th, td { border-bottom: 1px solid var(--border); padding: 9px 10px; text-align: left; line-height: 1.6; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; padding: 14px 18px; font-size: 13.5px; line-height: 1.8; margin: 14px 0; }
+  .callout b { color: var(--accent); }
+
+  .back { display: inline-flex; align-items: center; gap: 6px; color: #c7d2fe; text-decoration: none; font-size: 13px; margin-bottom: 18px; }
+  .back:hover { color: #fff; }
+
+  @media (max-width: 860px) {
+    .layout { flex-direction: column; }
+    nav.toc { position: static; width: 100%; }
+    .duo { grid-template-columns: 1fr; }
+    .hero { padding: 36px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <a class="back" href="/">‹ 返回统一消息中心</a>
+  <h1>统一消息中心 · 把多平台消息收进一个入口</h1>
+  <p>钉钉、微信的消息统一接收、统一回复、统一管理。本页说明系统的全部功能：怎么收消息、怎么回消息、怎么发文件、怎么撤回、怎么管好友、怎么区分用户角色——每一步都是真实链路，不是模拟演示。</p>
+  <div class="tags">
+    <span class="tag">多平台连接器</span><span class="tag">钉钉双向收发</span><span class="tag">微信 RPA</span>
+    <span class="tag">文件互传</span><span class="tag">消息撤回</span><span class="tag">好友清单</span>
+    <span class="tag">角色权限</span><span class="tag">AI 分类与自动回复</span><span class="tag">记录导出</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc">
+    <div class="toc-title">目录</div>
+    <a href="#s1">01 · 消息怎么进来</a>
+    <a href="#s2">02 · 会话与回复</a>
+    <a href="#s3">03 · 文件互传</a>
+    <a href="#s4">04 · 消息撤回</a>
+    <a href="#s5">05 · 好友清单</a>
+    <a href="#s6">06 · 用户角色与权限</a>
+    <a href="#s7">07 · 钉钉扫码登录</a>
+    <a href="#s8">08 · 记录管理与导出</a>
+    <a href="#s9">09 · AI 能力</a>
+    <a href="#s10">10 · 应用连接器</a>
+  </nav>
+
+  <main>
+    <section class="card" id="s1">
+      <h2><span class="no">01</span>消息怎么进来：平台 → 统一入口</h2>
+      <p>钉钉侧用<b class="k">企业内部应用 + Stream 长连接</b>实时接收：群里 @机器人 的文字、文件、图片都会实时推送到本平台，无需公网回调。微信侧因个人号无开放接口，用 <b class="k">Power Automate 桌面自动化</b>采集后经纯文本接口入库。</p>
+      <div class="duo">
+        <div class="box yes"><h3>钉钉：真实双向</h3>Stream 订阅机器人消息主题，文字/文件/图片三类消息全支持；文件走官方下载接口拉取字节并留档。</div>
+        <div class="box no"><h3>微信：RPA 半自动</h3>个人号没有 API，用桌面自动化复制消息 → 纯文本接口入库；发送侧为模拟回执。这是平台限制下的务实方案。</div>
+      </div>
+    </section>
+
+    <section class="card" id="s2">
+      <h2><span class="no">02</span>会话与回复：同一人一个会话</h2>
+      <p>消息列表按<b class="k">联系人合并</b>：同一人（平台+发送人）只占一行，显示最新一条和未读数；点进去是连续气泡，和微信一样。回复时消息经发送路由<b class="k">真实发回钉钉群并 @对方</b>，不是只在网页里假装。</p>
+      <p>回复支持主备通道降级：主通道（API）失败自动切备用（Webhook / RPA），仍失败则渲染失败气泡并给出<b class="k">重试 / 切换通道重试</b>按钮。</p>
+    </section>
+
+    <section class="card" id="s3">
+      <h2><span class="no">03</span>文件互传：双向都留档</h2>
+      <table>
+        <tr><th>方向</th><th>链路</th><th>结果</th></tr>
+        <tr><td>网页 → 钉钉</td><td>媒体上传 API 换 mediaId → sampleFile 发到群</td><td>群内真实收到文件，网页气泡可点击下载</td></tr>
+        <tr><td>钉钉 → 网页</td><td>机器人收到文件消息 → messageFiles/download 换URL → 拉取字节留档</td><td>网页实时出现文件气泡，点击可下载打开</td></tr>
+      </table>
+      <div class="callout"><b>留档设计：</b>所有收发的文件都存本地磁盘并建 files 表索引，删除消息时级联清理磁盘文件，不留孤儿文件。</div>
+    </section>
+
+    <section class="card" id="s4">
+      <h2><span class="no">04</span>消息撤回：两个方向的同步</h2>
+      <div class="duo">
+        <div class="box yes"><h3>网页里撤回自己的消息</h3>自己发的气泡带「撤回」按钮，撤回后变灰显示「已撤回一条消息」——记录保留痕迹，与微信语义一致。别人的消息只有删除，不能替对方撤回。</div>
+        <div class="box yes"><h3>钉钉里撤回 → 网页自动同步</h3>Stream 订阅了撤回事件：对方在钉钉撤回后，网页对应消息自动变灰「对方在钉钉撤回了一条消息」，经 WebSocket 实时推送。</div>
+      </div>
+    </section>
+
+    <section class="card" id="s5">
+      <h2><span class="no">05</span>好友清单：自动聚合 + 手动添加</h2>
+      <div class="steps">
+        <li><b>自动聚合</b>：收到过消息的平台联系人自动出现在清单，显示平台、会话、最后消息、未读数。</li>
+        <li><b>手动添加好友</b>：消息页「+ 添加好友」填平台和名字，持久化入库；与已有联系人自动合并，不会出现两个同名人。</li>
+        <li><b>主动发消息</b>：每个联系人卡片有「发消息」，弹出输入框即走真实发送路由并 @对方。</li>
+        <li><b>删除好友</b>：好友卡片支持移除。</li>
+      </div>
+    </section>
+
+    <section class="card" id="s6">
+      <h2><span class="no">06</span>用户角色与权限：数据隔离</h2>
+      <table>
+        <tr><th>能力</th><th>系统管理员</th><th>普通用户</th></tr>
+        <tr><td>可见消息范围</td><td>所有人名下的全部消息</td><td>仅自己名下的消息</td></tr>
+        <tr><td>成员管理</td><td>有：查看账号、切换角色</td><td>无</td></tr>
+        <tr><td>清空/导出范围</td><td>全部</td><td>仅自己的</td></tr>
+      </table>
+      <div class="callout"><b>隔离原理：</b>每条消息入库时挂 owner（登录账号），查询时按 token 过滤。所以一个刚注册的账号看到 0 条消息是隔离生效，不是故障。</div>
+    </section>
+
+    <section class="card" id="s7">
+      <h2><span class="no">07</span>钉钉扫码登录：OAuth 授权</h2>
+      <div class="steps">
+        <li>登录页点「钉钉扫码登录」，跳转钉钉授权页。</li>
+        <li>手机钉钉扫码确认，授权码回调到本平台。</li>
+        <li>后端用授权码换取用户 unionId 与昵称，首次自动注册本地账号并绑定。</li>
+        <li>以后再扫直接登录同一账号，无需密码。</li>
+      </div>
+      <p>扫码登录与消息收发<b class="k">共用同一套企业应用凭据</b>，是两个独立能力：收发靠 Stream 长连接，登录靠 OAuth 授权码模式。</p>
+    </section>
+
+    <section class="card" id="s8">
+      <h2><span class="no">08</span>记录管理与导出</h2>
+      <p>删除单条记录（气泡级）、删除整个会话（按联系人）、清空全部记录，均真删数据库并级联清理文件与流转时间线。顶栏「导出记录」一键导出 <b class="k">CSV（UTF-8 BOM）</b>，Excel 直接打开不乱码——导出为纯真实数据，无任何演示种子。</p>
+    </section>
+
+    <section class="card" id="s9">
+      <h2><span class="no">09</span>AI 能力：分类 / 建议 / 自动回复</h2>
+      <p>DeepSeek 对新消息智能分类（待办自动入列）、基于上下文生成回复建议、跨平台聚合每日摘要；会话页可开启 <b class="k">AI 自动回复</b>开关，新消息进来自动生成并发送。无 Key 时自动降级规则引擎，闭环不中断。</p>
+    </section>
+
+    <section class="card" id="s10">
+      <h2><span class="no">10</span>应用连接器：WorkBuddy 式管理</h2>
+      <p>「应用连接」页展示每个平台的主备通道、连接状态、最近同步与成功率，支持连接 / 断开 / 连通性测试，风格对标 WorkBuddy 的连接器管理。</p>
+    </section>
+  </main>
+</div>
+
+<script>
+  // 目录高亮：滚动到对应卡片时点亮左侧条目
+  const links = [...document.querySelectorAll("nav.toc a")];
+  const secs = links.map(a => document.querySelector(a.getAttribute("href")));
+  function highlight() {
+    let idx = 0;
+    secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top < 140) idx = i; });
+    links.forEach((a, i) => a.classList.toggle("active", i === idx));
+  }
+  addEventListener("scroll", highlight); highlight();
+</script>
+</body>
+</html>
