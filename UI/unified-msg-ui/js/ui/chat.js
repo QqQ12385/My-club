@@ -126,6 +126,7 @@ async function loadThread(msgId) {
       time: t.time,
       sendStatus: t.sendStatus || (t.from === "me" ? "synced" : undefined),
       channel: t.channel || undefined,
+      fileId: t.fileId || undefined,   // ★ 必须保留：图片缩略图/下载链接依赖它
     }));
     if (mapped.length) {
       state.threads[msgId] = mapped;
