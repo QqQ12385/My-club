@@ -39,10 +39,12 @@ function connectWebSocket() {
       const data = JSON.parse(event.data);
       // 推送约定：{ type: "new_message", data: {统一格式消息} }
       //           { type: "status_update", data: { id, status } }
+      if (data.type === "new_message" && !wsMsgForMe(data.data)) return; // 数据隔离：只收自己名下的推送
       if (data.type === "new_message") pushMessage(data.data);
       if (data.type === "status_update") updateStatus(data.data.id, data.data.status);
       if (data.type === "msg_recalled") applyRecall(data.data.id);
       if (data.type === "thread_update" && typeof loadThread === "function") loadThread(data.data.id);
+      if (data.type === "contacts_update") refreshFriends();
     } catch { /* 忽略无法解析的消息 */ }
   };
   ws.onclose = () => { updateWsStatus("demo", "演示模式 · 模拟数据"); enterDemoMode(); };
@@ -60,6 +62,18 @@ function enterDemoMode() {
     pushMessage(INCOMING_DEMO_MESSAGES[demoIdx]);
     demoIdx++;
   }, 15000);
+}
+
+/* ---------- 好友清单实时刷新（WS contacts_update 推送触发）---------- */
+async function refreshFriends() {
+  try {
+    const headers = window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {};
+    const r = await fetch(`${API_BASE}/contacts/list`, { headers });
+    if (!r.ok) return;
+    state.friends = await r.json();
+    if (typeof renderContactTabPanel === "function") renderContactTabPanel();
+    if (state.view === "contacts" && typeof renderContacts === "function") renderContacts();
+  } catch { /* 后端不可达时忽略 */ }
 }
 
 /* ---------- 发送时解析后端真实消息 ID ----------
@@ -174,6 +188,15 @@ async function loadBackendData() {
 }
 
 /* ---------- 数据写入（WebSocket 推送 / 演示共用）---------- */
+/* 多用户隔离：判断推送的消息是否属于当前登录用户（管理员看全部） */
+function wsMsgForMe(m) {
+  if (!m || !m.owner) return true;                    // 无归属字段的推送（旧格式/平台消息）放行
+  const acct = state.profile && state.profile.email;  // 后端把登录账号存在 profile.email
+  if (!acct || !state.loggedIn) return false;         // 未登录不收任何推送
+  if (state.profile.role === "系统管理员") return true; // 管理员可见全部
+  return m.owner === acct;
+}
+
 function pushMessage(data) {
   state.msgSeq++;
   const msg = {
@@ -188,6 +211,7 @@ function pushMessage(data) {
     unread: true,
     pinned: !!data.pinned,
     muted: !!data.muted,
+    convId: data.convId || "",
   };
   state.messages.unshift(msg);
 

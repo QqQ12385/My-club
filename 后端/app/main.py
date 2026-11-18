@@ -865,11 +865,13 @@ def friend_add(req: FriendAddReq, authorization: str | None = Header(None)):
     db.execute("INSERT INTO contacts(platform,name,chat,owner,created_at) VALUES(?,?,?,?,?)",
                (plat, name, chat, owner, time.time()))
     db.add_op(f"添加好友 {name}（{'站内' if plat=='user' else plat}）")
+    await hub.broadcast({"type": "contacts_update"})
     return {"ok": True}
 
 @app.delete("/api/contacts/{cid}")
-def friend_delete(cid: int):
+async def friend_delete(cid: int):
     db.execute("DELETE FROM contacts WHERE id=?", (cid,))
+    await hub.broadcast({"type": "contacts_update"})
     return {"ok": True}
 
 

@@ -644,6 +644,17 @@ async function deleteFriend(id, name) {
     if (e.target === $("friendAddLayer")) closeFriendAdd();
   });
 
+/* 站内好友：优先打开与 123 一样的完整聊天页（有历史消息时） */
+function openUserChat(name) {
+  const msg = state.messages.find(m => m.platform === "user" && m.sender === name);
+  if (!msg) return false;
+  switchTab("messages");
+  openChat(msg.id);
+  const input = $("chatInput");
+  if (input) input.focus();
+  return true;
+}
+
   // 消息页联系人 tab：发消息 / 查看消息 / 删除好友（与全屏视图同样的事件委托）
   const ctl = $("contactTabList");
   if (ctl) ctl.addEventListener("click", (e) => {
@@ -651,6 +662,7 @@ async function deleteFriend(id, name) {
     if (del) { deleteFriend(del.dataset.delFriend, del.dataset.name); return; }
     const send = e.target.closest("[data-send-contact]");
     if (send) {
+      if (send.dataset.platform === "user" && openUserChat(send.dataset.sendContact)) return;
       openContactSend({
         sender: send.dataset.sendContact,
         platform: send.dataset.platform,
@@ -683,8 +695,11 @@ async function deleteFriend(id, name) {
 
   // 联系人清单：查看消息 → 打开会话；发消息 → 弹出主动发送输入框
   $("viewContacts").addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del-friend]");
+    if (del) { deleteFriend(del.dataset.delFriend, del.dataset.name); return; }
     const send = e.target.closest("[data-send-contact]");
     if (send) {
+      if (send.dataset.platform === "user" && openUserChat(send.dataset.sendContact)) return;
       openContactSend({
         sender: send.dataset.sendContact,
         platform: send.dataset.platform,
