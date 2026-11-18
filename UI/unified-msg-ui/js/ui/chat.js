@@ -147,9 +147,10 @@ function closeChat() {
 function renderChatHead(msg) {
   if (!msg) return;
   const plan = planOf(msg);
+  const dName = msg._displayName || msg.sender;   // 站内会话显示对方姓名
   $("chatAvatar").innerHTML =
-    `<span>${getAvatarText(msg.sender)}</span><i class="av-dot ${msg.platform}"></i>`;
-  $("chatName").textContent = msg.sender;
+    `<span>${getAvatarText(dName)}</span><i class="av-dot ${msg.platform}"></i>`;
+  $("chatName").textContent = dName;
   // 群/会话名 + 平台 + 主通道：明确「这条回给谁、发到哪」
   const chatName = msg.chat ? `「${msg.chat}」` : "";
   $("chatSub").textContent =

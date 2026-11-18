@@ -146,9 +146,11 @@ async function loadBackendData() {
       time: m.time, day: m.day, type: m.type, content: m.content, status: m.status,
       unread: !!m.unread, pinned: !!m.pinned, muted: !!m.muted,
       convId: m.convId || "",            // 钉钉会话ID（联系人主动发消息真实回发用）
+      owner: m.owner || "",
     }));
     state.messages = msgs;
     state.msgSeq = msgs.length + 100;
+    if (typeof refreshContactDisplayNames === "function") refreshContactDisplayNames();
 
     // 2.5) 好友清单（手动添加的联系人）
     try {
@@ -212,8 +214,10 @@ function pushMessage(data) {
     pinned: !!data.pinned,
     muted: !!data.muted,
     convId: data.convId || "",
+    owner: data.owner || "",
   };
   state.messages.unshift(msg);
+  if (typeof refreshContactDisplayNames === "function") refreshContactDisplayNames();
 
   // 含【待办】标记的文本自动生成待办项
   if (msg.type === "todo" && msg.content.includes("【待办】")) {

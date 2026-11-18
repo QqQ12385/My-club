@@ -144,7 +144,29 @@ function appendThread(msgId, entry) {
 // ---------- 联系人会话合并（同一人只显示一个会话）----------
 /* 联系人唯一键：平台 + 发送人（同一个人在同一个平台只有一个会话） */
 function contactKeyOf(m) {
+  // 站内会话按 conv_id（user:对方账号）聚合：管理员能看到收发双方的消息副本，
+  // 若按 sender 聚合会拆成"1"和"高远"两个幽灵联系人
+  if (m.platform === "user" && m.convId) return m.convId;
   return `${m.platform}|${m.sender}`;
+}
+
+/* 站内会话统一显示名：取组内"对方姓名"（sender ≠ 我的姓名的那条消息），写入 _displayName。
+   管理员视角下同一会话既有我发出的（sender=对方名）也有对方收到的副本（sender=我名），
+   统一后列表/聊天头部都显示对方姓名。 */
+function refreshContactDisplayNames() {
+  const myName = (state.profile && (state.profile.name || state.profile.cnName)) || "";
+  const groups = new Map();
+  state.messages.forEach(m => {
+    if (m.platform !== "user") return;
+    const k = m.convId || `user:${m.sender}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(m);
+  });
+  groups.forEach(arr => {
+    const other = arr.find(m => m.sender !== myName);
+    const name = other ? other.sender : arr[0].sender;
+    arr.forEach(m => { m._displayName = name; });
+  });
 }
 
 /* 取某联系人的全部消息（按 state.messages 顺序 = 新→旧） */

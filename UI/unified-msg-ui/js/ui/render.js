@@ -77,13 +77,14 @@ function convRowHtml(m, extra) {
   const flags = `${isPinned(m) ? `<i class="conv-flag pin" title="已置顶">${ICON.pin}</i>` : ""}` +
                 `${isMuted(m) ? `<i class="conv-flag mute" title="免打扰">${ICON.mute}</i>` : ""}`;
   const cnt = extra && extra.count > 1 ? `<span class="conv-cnt">${extra.count} 条</span>` : "";
+  const dName = m._displayName || m.sender;   // 站内会话显示对方姓名
   return `
     <div class="conv-item ${extra && extra.unread ? "unread" : ""} ${m.muted ? "muted" : ""} ${contactKeyOf(m) === state.currentContactKey ? "active" : ""}"
          data-key="${contactKeyOf(m)}">
-      <div class="avatar"><span>${getAvatarText(m.sender)}</span><i class="av-dot ${m.platform}"></i></div>
+      <div class="avatar"><span>${getAvatarText(dName)}</span><i class="av-dot ${m.platform}"></i></div>
       <div class="conv-main">
         <div class="conv-top">
-          <span class="conv-name">${m.sender}</span>
+          <span class="conv-name">${dName}</span>
           ${flags}
           <span class="status-badge ${m.status}">${STATUS_TEXT[m.status]}</span>
           ${cnt}

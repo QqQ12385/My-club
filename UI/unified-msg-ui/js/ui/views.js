@@ -344,10 +344,11 @@ function renderApps() {
 function buildContactList() {
   const map = new Map();
   state.messages.forEach(m => {
-    const key = `${m.platform}|${m.sender}`;
+    const key = contactKeyOf(m);
+    const dName = m._displayName || m.sender;   // 站内会话显示对方姓名
     if (!map.has(key)) {
       map.set(key, {
-        key, platform: m.platform, sender: m.sender,
+        key, platform: m.platform, sender: dName,
         chat: m.chat || "", lastTime: m.time, lastText: m.content,
         unread: 0, count: 0, msgIds: [], convId: m.convId || "", friend: false,
       });
@@ -360,11 +361,12 @@ function buildContactList() {
   });
   // 手动添加的好友：消息里没有也出现在清单里（带 id，可删除）
   (state.friends || []).forEach(f => {
-    const key = `${f.platform}|${f.name}`;
+    // 站内好友 key 与消息聚合一致（conv_id = user:对方账号）
+    const key = f.platform === "user" && f.chat ? `user:${f.chat}` : `${f.platform}|${f.name}`;
     if (!map.has(key)) {
       map.set(key, { key, platform: f.platform, sender: f.name,
         chat: f.chat || "", lastTime: "—", lastText: "（暂无消息）",
-        unread: 0, count: 0, msgIds: [], convId: "", friend: true, friendId: f.id });
+        unread: 0, count: 0, msgIds: [], convId: f.platform === "user" && f.chat ? `user:${f.chat}` : "", friend: true, friendId: f.id });
     } else {
       map.get(key).friend = true;
       map.get(key).friendId = f.id;
