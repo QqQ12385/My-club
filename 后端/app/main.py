@@ -691,12 +691,61 @@ class ReplyReq(BaseModel):
     fault: bool = False             # 故障演练开关
 
 
+async def _reply_internal(mid: str, msg: dict, text: str, authorization: str | None) -> dict:
+    """站内好友回复：收件人落一条「收到」消息（owner=对方），我侧追加 me 气泡，WS 推送双方。"""
+    text = (text or "").strip()
+    if not text:
+        raise HTTPException(400, "消息内容不能为空")
+    owner = _current_account(authorization) or "gary"
+    # 收件人 = 会话里的对方账号（conv_id=user:账号）
+    to_account = (msg.get("convId") or msg.get("conv_id") or "").split(":")[-1].strip()
+    if not to_account or to_account == owner:
+        crow = db.query("SELECT chat FROM contacts WHERE platform='user' AND name=? AND owner=?",
+                        (msg["sender"], owner))
+        to_account = crow[0]["chat"] if crow else ""
+    to_user = db.get_user_by_account(to_account)
+    if not to_user or to_user["account"] == owner:
+        raise HTTPException(404, "未能确定站内好友账号，请先添加好友后重试")
+    me_user = db.get_user_by_account(owner)
+    my_name = me_user["name"] if me_user else owner
+    now = time.strftime("%H:%M")
+
+    # 收件人视角：一条「收到的新消息」
+    mid_in = f"m{uuid.uuid4().hex[:8]}"
+    db.execute(
+        "INSERT INTO messages(id,platform,msg_key,sender,chat,time,day,type,content,"
+        "status,unread,pinned,muted,dedup_key,conv_id,owner,created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (mid_in, "user", None, my_name, "站内消息", now, "today", "text", text,
+         "received", 1, 0, 0, db.dedup_hash("user", my_name, now, text),
+         f"user:{to_account}", to_account, time.time()))
+    db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+               " VALUES(?,?,?,?,?,?)", (mid_in, "them", text, now, None, None))
+    db.add_trace(mid_in, "已接收", f"站内信来自 {my_name}({owner})")
+    await hub.broadcast({"type": "new_message",
+                         "data": db.msg_to_dict(db.query("SELECT * FROM messages WHERE id=?", (mid_in,))[0])})
+
+    # 我侧：追加 me 气泡 + 状态回流
+    db.execute("INSERT INTO thread(msg_id,from_side,text,time,send_status,channel)"
+               " VALUES(?,?,?,?,?,?)", (mid, "me", text, now, "synced", "internal"))
+    db.execute("UPDATE messages SET status='replied', unread=0 WHERE id=?", (mid,))
+    db.add_trace(mid, "已回复", f"站内信发给 {to_user['name']}({to_account})：{text}")
+    await hub.broadcast({"type": "thread_update", "data": {"id": mid}})
+    await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "replied"}})
+    return {"ok": True, "channel": "internal", "status": "replied", "messageId": mid}
+
+
 @app.post("/api/messages/{mid}/reply")
-async def reply(mid: str, req: ReplyReq):
+async def reply(mid: str, req: ReplyReq, authorization: str | None = Header(None)):
     row = db.query("SELECT * FROM messages WHERE id=?", (mid,))
     if not row:
         raise HTTPException(404, "消息不存在")
     msg = db.msg_to_dict(row[0])
+
+    # 站内好友（platform=user）：回复走站内信双写，不经外部平台
+    if msg["platform"] == "user":
+        return await _reply_internal(mid, msg, req.text, authorization)
+
     conn = db.query("SELECT connected FROM apps WHERE key=?", (msg["platform"],))
     if conn and not conn[0]["connected"]:
         reason = f"{msg['platform']}连接已断开，请到「应用连接」重新连接"
