@@ -505,12 +505,14 @@ function toggleFriendPlatformUI(platform) {
     fetch(`${API_BASE}/users/directory`, {
       headers: window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {},
     }).then(r => r.json()).then(users => {
-      $("friendUserSelect").innerHTML = users
-        .map(u => `<option value="${u.account}">${u.name}（${u.account}${u.role === "admin" ? " · 管理员" : ""}）</option>`)
-        .join("");
+      if (!Array.isArray(users)) throw new Error("接口不存在（请重启后端）");
+      $("friendUserSelect").innerHTML = users.length
+        ? users.map(u => `<option value="${u.account}">${u.name}（${u.account}${u.role === "admin" ? " · 管理员" : ""}）</option>`).join("")
+        : `<option value="">暂无其他注册用户</option>`;
       $("friendUserSelect").dataset.loaded = "1";
     }).catch(() => {
-      $("friendUserSelect").innerHTML = `<option value="">目录加载失败</option>`;
+      $("friendUserSelect").innerHTML = `<option value="">目录加载失败，请重启后端后刷新</option>`;
+      delete $("friendUserSelect").dataset.loaded;
     });
   }
 }
