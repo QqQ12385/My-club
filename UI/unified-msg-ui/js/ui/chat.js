@@ -214,7 +214,9 @@ function renderThread() {
       <div class="bubble-row them">
         <div class="avatar small"><span>${getAvatarText(msg.sender)}</span></div>
         <div class="bubble them-bubble ${t.recalled ? "recalled" : ""}">
-          <div class="bubble-text">${t.text}</div>
+          <div class="bubble-text">${t.fileId
+            ? `<a class="bubble-file" href="${API_BASE}/files/${t.fileId}" target="_blank" download>${t.text}</a>`
+            : t.text}</div>
           <div class="bubble-status">${t.time} ${delBtn}</div>
         </div>
       </div>`;

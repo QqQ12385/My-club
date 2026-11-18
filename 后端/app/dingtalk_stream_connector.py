@@ -206,6 +206,33 @@ async def send_file(open_conversation_id: str, media_id: str, filename: str) -> 
         return {"ok": False, "reason": f"钉钉文件发送异常: {e}"}
 
 
+async def download_robot_file(download_code: str) -> dict:
+    """下载机器人收到的文件消息。先换下载URL（/v1.0/robot/messageFiles/download），
+    再拉取字节。返回 {"ok": bool, "content": bytes, "reason": str}。"""
+    if not (_APP_KEY and _APP_SECRET):
+        return {"ok": False, "content": b"", "reason": "未配置钉钉企业应用凭据"}
+    token = await _get_token()
+    if not token:
+        return {"ok": False, "content": b"", "reason": "获取钉钉 access_token 失败"}
+    headers = {"x-acs-dingtalk-access-token": token}
+    try:
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.post("https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+                             headers=headers,
+                             json={"robotCode": _APP_KEY, "downloadCode": download_code})
+            data = r.json()
+            url = data.get("downloadUrl")
+            if r.status_code != 200 or not url:
+                return {"ok": False, "content": b"",
+                        "reason": f"获取文件下载URL失败: {data.get('message') or data}"}
+            f = await c.get(url)
+            if f.status_code != 200:
+                return {"ok": False, "content": b"", "reason": f"文件下载失败: HTTP {f.status_code}"}
+            return {"ok": True, "content": f.content}
+    except Exception as e:
+        return {"ok": False, "content": b"", "reason": f"钉钉文件下载异常: {e}"}
+
+
 async def send_message(open_conversation_id: str, text: str, at_user_id: str = "") -> dict:
     """通过机器人主动发消息到指定群/会话（页面回复钉钉消息走这里）。
 

@@ -63,8 +63,13 @@ PROFILE_DEFAULT = {
 
 def _on_dingtalk_message(incoming) -> None:
     """钉钉 Stream 收到消息的回调：归一化 + AI 分类 + WS 推送。
-    用线程池调度，避免阻塞 Stream 的 ack 返回。"""
+    用线程池调度，避免阻塞 Stream 的 ack 返回。
+    文件/图片消息：走异步下载流程（机器人 messageFiles/download 换URL后拉取字节）。"""
     try:
+        mtype = getattr(incoming, "message_type", "") or ""
+        if mtype in ("file", "picture"):
+            asyncio.run_coroutine_threadsafe(_ingest_dingtalk_file(incoming, mtype), _main_loop)
+            return
         text = incoming.get_text_list()
         content = (text[0] if text else "").strip()
         if not content:
@@ -83,6 +88,55 @@ def _on_dingtalk_message(incoming) -> None:
         asyncio.run_coroutine_threadsafe(_ingest(raw), _main_loop)
     except Exception as e:
         log_dt.exception("钉钉消息入站处理异常: %s", e)
+
+
+async def _ingest_dingtalk_file(incoming, mtype: str) -> None:
+    """接收钉钉文件/图片消息：换下载URL → 拉字节 → 本地留档 → 归一化入库（可点击下载）。"""
+    from . import dingtalk_stream_connector as dt
+    try:
+        content_dict = (getattr(incoming, "extensions", {}) or {}).get("content") or {}
+        filename = content_dict.get("fileName") or f"图片-{time.strftime('%H%M%S')}.png"
+        download_code = content_dict.get("downloadCode") or ""
+        if not download_code:
+            log_dt.warning("钉钉文件消息缺少 downloadCode: %s", content_dict)
+            return
+        dl = await dt.download_robot_file(download_code)
+        if not dl["ok"]:
+            log_dt.error("钉钉文件下载失败：%s", dl["reason"])
+            raw = {"platform": "dingtalk",
+                   "sender": incoming.sender_nick or "钉钉成员",
+                   "chat": incoming.conversation_title or ("群聊" if incoming.conversation_type == "2" else "单聊"),
+                   "content": f"📎 [文件] {filename}（下载失败：{dl['reason']}）",
+                   "msg_key": incoming.message_id,
+                   "conv_id": incoming.conversation_id or ""}
+            await _ingest(raw)
+            return
+        content = dl["content"]
+        raw = {"platform": "dingtalk",
+               "sender": incoming.sender_nick or "钉钉成员",
+               "chat": incoming.conversation_title or ("群聊" if incoming.conversation_type == "2" else "单聊"),
+               "content": f"📎 [文件] {filename}",
+               "msg_key": incoming.message_id,
+               "conv_id": incoming.conversation_id or ""}
+        result = await _ingest(raw)
+        mid = result.get("id")
+        if not mid:
+            return
+        # 本地留档 + 会话气泡关联 fileId（网页可直接点开/下载）
+        fid = uuid.uuid4().hex[:12]
+        updir = Path(__file__).resolve().parent / "uploads"
+        updir.mkdir(exist_ok=True)
+        stored = updir / f"{fid}_{filename}"
+        stored.write_bytes(content)
+        db.execute("INSERT INTO files(id, msg_id, filename, size, path, created_at) VALUES(?,?,?,?,?,?)",
+                   (fid, mid, filename, len(content), str(stored), time.time()))
+        db.execute("UPDATE thread SET file_id=? WHERE id=(SELECT id FROM thread "
+                   "WHERE msg_id=? AND from_side='them' ORDER BY id DESC LIMIT 1)",
+                   (fid, mid))
+        db.add_trace(mid, "已接收文件", f"来自钉钉的文件已留档：{filename}（{len(content)//1024}KB）")
+        await hub.broadcast({"type": "thread_update", "data": {"id": mid}})
+    except Exception as e:
+        log_dt.exception("钉钉文件消息处理异常: %s", e)
 
 
 def _on_dingtalk_recall(data: dict) -> None:

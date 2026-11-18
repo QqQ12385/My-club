@@ -42,6 +42,7 @@ function connectWebSocket() {
       if (data.type === "new_message") pushMessage(data.data);
       if (data.type === "status_update") updateStatus(data.data.id, data.data.status);
       if (data.type === "msg_recalled") applyRecall(data.data.id);
+      if (data.type === "thread_update" && typeof loadThread === "function") loadThread(data.data.id);
     } catch { /* 忽略无法解析的消息 */ }
   };
   ws.onclose = () => { updateWsStatus("demo", "演示模式 · 模拟数据"); enterDemoMode(); };
