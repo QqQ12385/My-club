@@ -247,7 +247,10 @@ async def _ingest_feishu_file(item: dict) -> None:
             cdata = {}
         msg_id = item.get("message_id") or ""
         if item.get("message_type") == "image":
-            file_key = (cdata.get("image") or {}).get("image_key") or ""
+            # 飞书图片事件的 image_key 直接在 content 顶层（不是 content.image.image_key）
+            file_key = (cdata.get("image_key")
+                        or (cdata.get("image") or {}).get("image_key")
+                        or (cdata.get("data") or {}).get("image_key") or "")
             filename = f"飞书图片-{time.strftime('%H%M%S')}.png"
             res_type = "image"
         else:
