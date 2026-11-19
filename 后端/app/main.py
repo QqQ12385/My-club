@@ -1052,8 +1052,11 @@ async def send_file(mid: str, file: UploadFile = File(...), authorization: str |
     msg = db.msg_to_dict(row[0])
     content = await file.read()
     filename = file.filename or "file.bin"
-    if len(content) > 20 * 1024 * 1024:
-        raise HTTPException(422, "文件超过 20MB（钉钉机器人媒体上传上限）")
+    platform = msg["platform"]
+    # 各平台媒体上传上限：飞书 30MB、钉钉 20MB，统一取较小值校验，提示按平台区分
+    limit_mb = 30 if platform == "feishu" else 20
+    if len(content) > limit_mb * 1024 * 1024:
+        raise HTTPException(422, f"文件超过 {limit_mb}MB（{'飞书' if platform == 'feishu' else '钉钉机器人'}媒体上传上限）")
 
     # 本地持久化：统一入口留档，网页端可随时下载/打开（下载走 /api/files/{fid}）
     fid = uuid.uuid4().hex[:12]
