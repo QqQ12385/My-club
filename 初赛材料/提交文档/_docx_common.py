@@ -60,18 +60,34 @@ def add_para(doc, text="", size=10.5, bold=False, align=None, name=SONG,
 
 
 def add_heading1(doc, text):
-    """一级标题：宋体小四(12pt)加粗，1.5 倍行距。"""
-    return add_para(doc, text, size=12, bold=True, space_before=8, space_after=4)
+    """一级标题：宋体小四(12pt)加粗，1.5 倍行距。套 Heading 1 样式供 TOC 域引用。"""
+    p = doc.add_heading(level=1)
+    _reset_heading_style(p, text, size=12, bold=True, space_before=8, space_after=4)
+    return p
 
 
 def add_heading2(doc, text):
-    """二级标题：宋体五号(10.5pt)加粗。"""
-    return add_para(doc, text, size=10.5, bold=True, space_before=6, space_after=3)
+    """二级标题：宋体五号(10.5pt)加粗。套 Heading 2 样式供 TOC 域引用。"""
+    p = doc.add_heading(level=2)
+    _reset_heading_style(p, text, size=10.5, bold=True, space_before=6, space_after=3)
+    return p
 
 
 def add_heading3(doc, text):
     """三级标题：宋体五号(10.5pt)。"""
     return add_para(doc, text, size=10.5, bold=False, space_before=3, space_after=2)
+
+
+def _reset_heading_style(p, text, size=10.5, bold=False, space_before=0, space_after=0):
+    """清掉 Heading 默认的蓝色/Calibri，改为宋体黑字，保留大纲级别供 TOC 引用。"""
+    set_para_15(p)
+    pf = p.paragraph_format
+    pf.space_before = Pt(space_before)
+    pf.space_after = Pt(space_after)
+    r = p.add_run(text)
+    set_font(r, name=SONG, size=size, bold=bold)
+    r.font.color.rgb = RGBColor(0, 0, 0)
+    return p
 
 
 def add_body(doc, text, indent=True):
@@ -156,12 +172,38 @@ def build_cover(doc, doc_name):
     add_para(doc, REG_NO, size=14, bold=False, align=WD_ALIGN_PARAGRAPH.CENTER)
 
 
-def build_toc_page(doc):
-    """第二页目录（自动域引用，仅到二级标题）。"""
+def build_toc_page(doc, entries=None):
+    """第二页目录。默认生成 TOC 域（可在 Word 中更新）；若传 entries（[(level,text),...]）
+    则同时写出静态目录条目，任何人打开立即可见，不依赖手动更新域。"""
     doc.add_page_break()
-    p = add_para(doc, "目录", size=12, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER,
-                 space_after=6)
-    # 插入 TOC 域，级别 1-2
+    add_para(doc, "目录", size=12, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=6)
+    if entries:
+        # 静态目录：标题 + 点线引导符 + 右对齐页码占位（页码按正文实际排版，此处用 TOC 域可更新）
+        for level, text in entries:
+            p = doc.add_paragraph()
+            set_para_15(p)
+            pf = p.paragraph_format
+            pf.space_before = Pt(0)
+            pf.space_after = Pt(0)
+            if level == 1:
+                pf.left_indent = Pt(0)
+            else:
+                pf.left_indent = Pt(21)  # 二级缩进
+            # 标题文字
+            r = p.add_run(text)
+            set_font(r, name=SONG, size=10.5, bold=(level == 1))
+            # 点线引导 + 页码占位（页码由 Word 排版决定，保留 TOC 域可更新）
+            tab = p.add_run("\t")
+            set_font(tab, name=SONG, size=10.5)
+            page_run = p.add_run("")
+            set_font(page_run, name=SONG, size=10.5)
+            # 右对齐制表位 + 前导点线
+            from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+            p.paragraph_format.tab_stops.add_tab_stop(
+                Cm(14.6), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            _insert_page_field(page_run)
+        return
+    # 无 entries 时：插入 TOC 域（级别 1-2）
     para = doc.add_paragraph()
     run = para.add_run()
     fldChar = OxmlElement("w:fldChar")
@@ -174,12 +216,25 @@ def build_toc_page(doc):
     fldChar2 = OxmlElement("w:fldChar")
     fldChar2.set(qn("w:fldCharType"), "separate")
     run._r.append(fldChar2)
-    # 占位
     run2 = para.add_run("（目录将在 Word 中右键“更新域”自动生成）")
     set_font(run2, size=12)
     fldChar3 = OxmlElement("w:fldChar")
     fldChar3.set(qn("w:fldCharType"), "end")
     run2._r.append(fldChar3)
+
+
+def _insert_page_field(run):
+    """在 run 后插入 PAGE 域，作为静态目录的页码（可在 Word 中更新为实际页）。"""
+    fldChar1 = OxmlElement("w:fldChar")
+    fldChar1.set(qn("w:fldCharType"), "begin")
+    run._r.append(fldChar1)
+    instrText = OxmlElement("w:instrText")
+    instrText.set(qn("xml:space"), "preserve")
+    instrText.text = "PAGE"
+    run._r.append(instrText)
+    fldChar2 = OxmlElement("w:fldChar")
+    fldChar2.set(qn("w:fldCharType"), "end")
+    run._r.append(fldChar2)
 
 
 def start_body(doc):

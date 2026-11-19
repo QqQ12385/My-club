@@ -17,7 +17,20 @@ style._element.rPr.rFonts.set(qn("w:eastAsia"), SONG)
 style.font.size = Pt(10.5)
 
 build_cover(doc, "数据库设计")
-build_toc_page(doc)
+build_toc_page(doc, entries=[
+    (1, "1. 数据表清单"),
+    (1, "2. 数据表内容"),
+    (2, "2.1 messages（消息主表）"),
+    (2, "2.2 thread（会话上下文）"),
+    (2, "2.3 traces（状态流转时间线）"),
+    (2, "2.4 files（文件留档）"),
+    (2, "2.5 contacts（好友清单）"),
+    (2, "2.6 users（账号体系）"),
+    (2, "2.7 apps（平台连接状态）"),
+    (2, "2.8 其他表"),
+    (1, "3. SQL 语句"),
+    (1, "4. 其他"),
+])
 start_body(doc)
 
 # ============ 1 数据表清单 ============

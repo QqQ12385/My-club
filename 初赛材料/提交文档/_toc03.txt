@@ -1,0 +1,123 @@
+2. 数据表内容
+2.1 messages（消息主表）
+2.2 thread（会话上下文）
+2.3 traces（状态流转时间线）
+2.4 files（文件留档）
+2.5 contacts（好友清单）
+2.6 users（账号体系）
+2.7 apps（平台连接状态）
+2.8 其他表
+3. SQL 语句
+4. 其他
+统一消息管理系统的数据层采用 SQLite 持久化，围绕「消息接收 → 统一展示 → 处理 → 发送反馈」的业务闭环，设计了 10 张核心数据表。各表职责与关联关系如下表所示。
+表 1  数据表清单及关联关系
+2. 数据表内容
+2.1 messages（消息主表）
+表 2  messages 表
+2.2 thread（会话上下文）
+表 3  thread 表
+2.3 traces（状态流转时间线）
+表 4  traces 表
+2.4 files（文件留档）
+表 5  files 表
+2.5 contacts（好友清单）
+表 6  contacts 表
+2.6 users（账号体系）
+表 7  users 表
+2.7 apps（平台连接状态）
+表 8  apps 表
+2.8 其他表
+表 9  profile / ops_log / settings 表
+3. SQL 语句
+3.1 messages（消息主表）
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    msg_key TEXT,
+    sender TEXT NOT NULL,
+    chat TEXT NOT NULL,
+    time TEXT NOT NULL,
+    day TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'text',
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'received',
+    unread INTEGER DEFAULT 1,
+    pinned INTEGER DEFAULT 0,
+    muted INTEGER DEFAULT 0,
+    dedup_key TEXT UNIQUE,
+    conv_id TEXT,
+    owner TEXT NOT NULL DEFAULT 'gary',
+    created_at REAL
+);
+3.2 thread（会话上下文）
+CREATE TABLE IF NOT EXISTS thread (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    msg_id TEXT NOT NULL,
+    from_side TEXT NOT NULL,
+    text TEXT NOT NULL,
+    time TEXT NOT NULL,
+    send_status TEXT,
+    channel TEXT,
+    file_id TEXT
+);
+3.3 traces（状态流转时间线）
+CREATE TABLE IF NOT EXISTS traces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    msg_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    ts REAL NOT NULL
+);
+3.4 files（文件留档）
+CREATE TABLE IF NOT EXISTS files (
+    id TEXT PRIMARY KEY,
+    msg_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    size INTEGER DEFAULT 0,
+    path TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+3.5 contacts（好友清单）
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    name TEXT NOT NULL,
+    chat TEXT,
+    owner TEXT NOT NULL DEFAULT 'gary',
+    created_at REAL NOT NULL
+);
+3.6 users（账号体系）
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user',
+    dingtalk_unionid TEXT,
+    created_at REAL NOT NULL
+);
+3.7 apps（平台连接状态）
+CREATE TABLE IF NOT EXISTS apps (
+    key TEXT PRIMARY KEY,
+    connected INTEGER DEFAULT 0,
+    account TEXT, org TEXT, last_sync TEXT,
+    success_rate TEXT, since TEXT, note TEXT
+);
+3.8 profile（个人资料）
+CREATE TABLE IF NOT EXISTS profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    data TEXT NOT NULL
+);
+3.9 ops_log（操作日志）
+CREATE TABLE IF NOT EXISTS ops_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time TEXT, text TEXT
+);
+3.10 settings（键值配置）
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+4. 其他
+本项目的数据库迁移策略：启动时通过 PRAGMA table_info 检查列是否存在，对老库自动执行 ALTER TABLE 补列（如 conv_id、owner、dingtalk_unionid、file_id），保证历史数据库平滑升级，不丢失已有消息数据。
+AI 专项对话链接：https://www.doubao.com/thread/x8EnwzkHnb48qfmjB

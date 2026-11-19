@@ -16,7 +16,18 @@ style._element.rPr.rFonts.set(qn("w:eastAsia"), SONG)
 style.font.size = Pt(10.5)
 
 build_cover(doc, "接口设计")
-build_toc_page(doc)
+build_toc_page(doc, entries=[
+    (1, "1. 接口清单"),
+    (1, "2. 接口详情"),
+    (2, "2.1 账号登录"),
+    (2, "2.2 消息列表"),
+    (2, "2.3 回复消息（核心闭环）"),
+    (2, "2.4 归一化入站"),
+    (2, "2.5 主动发消息"),
+    (2, "2.6 实时推送（WebSocket）"),
+    (2, "2.7 其他接口说明"),
+    (1, "3. 其他"),
+])
 start_body(doc)
 
 # ============ 1 接口清单 ============
