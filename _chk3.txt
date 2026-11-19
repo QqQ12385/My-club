@@ -1,0 +1,2 @@
+docx:YES
+openpyxl:YES
