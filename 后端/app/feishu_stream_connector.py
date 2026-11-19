@@ -32,6 +32,11 @@ _client_ready = False
 _APP_ID = ""
 _APP_SECRET = ""
 
+# 运行状态：线程引用 + 停止标志，供"应用连接"页真正启停长连接
+_stream_thread: threading.Thread | None = None
+_stop_event = threading.Event()
+_running = False
+
 
 def is_configured() -> bool:
     return bool(settings.FEISHU_APP_ID and settings.FEISHU_APP_SECRET)
@@ -143,21 +148,67 @@ def _init_sdk():
 
 
 def start_stream_forever():
+    global _running
     client = _init_sdk()
     if not client:
         log.info("未配置飞书应用凭据或 SDK 未安装，跳过飞书长连接")
+        _running = False
         return
     log.info("飞书长连接启动中（appId=%s）...", _APP_ID)
+    _running = True
     try:
-        client.start()
-    except Exception as e:
-        log.exception("飞书长连接异常退出: %s", e)
+        # 独立线程跑 client.start()，主线程轮询 stop_event
+        def _run():
+            try:
+                client.start()
+            except Exception as e:
+                log.info("飞书长连接结束: %s", e)
+        worker = threading.Thread(target=_run, daemon=True, name="feishu-ws-worker")
+        worker.start()
+        while not _stop_event.is_set():
+            if not worker.is_alive():
+                if not _stop_event.is_set():
+                    log.info("飞书长连接意外断开，1.5s 后重连")
+                    _stop_event.wait(1.5)
+                    worker = threading.Thread(target=_run, daemon=True, name="feishu-ws-worker")
+                    worker.start()
+                else:
+                    break
+            else:
+                _stop_event.wait(0.5)
+    finally:
+        _running = False
+        log.info("飞书长连接已停止")
 
 
 def start_in_background():
-    t = threading.Thread(target=start_stream_forever, daemon=True, name="feishu-ws")
-    t.start()
-    return t
+    global _stream_thread, _stop_event
+    _stop_event.clear()
+    _stream_thread = threading.Thread(target=start_stream_forever, daemon=True, name="feishu-ws")
+    _stream_thread.start()
+    return _stream_thread
+
+
+def stop():
+    """真正停止飞书长连接：置停止标志 + 关 client，线程自然退出。"""
+    global _client_ready, _ws_client, _running
+    _stop_event.set()
+    try:
+        c = _ws_client
+        if c is not None:
+            close = getattr(c, "stop", None) or getattr(c, "close", None)
+            if close:
+                close()
+    except Exception as e:
+        log.warning("关闭飞书 client 异常: %s", e)
+    _client_ready = False
+    _ws_client = None
+    _running = False
+    log.info("已请求停止飞书长连接")
+
+
+def is_running() -> bool:
+    return _running and (_stream_thread is not None and _stream_thread.is_alive())
 
 
 # ---------------- REST：token / 发消息 / 传文件 / 下载 ----------------

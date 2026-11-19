@@ -45,6 +45,7 @@ function connectWebSocket() {
       if (data.type === "msg_recalled") applyRecall(data.data.id);
       if (data.type === "thread_update" && typeof loadThread === "function") loadThread(data.data.id);
       if (data.type === "contacts_update") refreshFriends();
+      if (data.type === "channel_update") applyChannelUpdate(data.data);
     } catch { /* 忽略无法解析的消息 */ }
   };
   ws.onclose = () => { updateWsStatus("demo", "演示模式 · 模拟数据"); enterDemoMode(); };
@@ -74,6 +75,56 @@ async function refreshFriends() {
     if (typeof renderContactTabPanel === "function") renderContactTabPanel();
     if (state.view === "contacts" && typeof renderContacts === "function") renderContacts();
   } catch { /* 后端不可达时忽略 */ }
+}
+
+/* ---------- 应用连接状态推送（WS channel_update）---------- */
+function applyChannelUpdate(d) {
+  if (!d || !d.key) return;
+  if (d.removed) {
+    // 连接器被移除：从清单里删掉
+    state.apps = state.apps.filter(a => a.key !== d.key);
+    renderAll();
+    return;
+  }
+  const app = getApp(d.key);
+  if (!app) return;
+  app.connected = !!d.connected;
+  if (typeof d.running === "boolean") app.running = d.running;
+  renderAll();
+}
+
+/* ---------- 应用连接操作（真实调后端，真正启停长连接）---------- */
+function appApiHeaders() {
+  return window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {};
+}
+
+async function apiConnectApp(key) {
+  const r = await fetch(`${API_BASE}/apps/${key}/connect`, {
+    method: "POST", headers: appApiHeaders(),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || data.reason || "连接失败");
+  updateAppFromServer(data);
+  return data;
+}
+
+async function apiDisconnectApp(key) {
+  const r = await fetch(`${API_BASE}/apps/${key}/disconnect`, {
+    method: "POST", headers: appApiHeaders(),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || data.reason || "断开失败");
+  updateAppFromServer(data);
+  return data;
+}
+
+async function apiTestApp(key) {
+  const r = await fetch(`${API_BASE}/apps/${key}/test`, {
+    method: "POST", headers: appApiHeaders(),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || "测试失败");
+  return data;
 }
 
 /* ---------- 发送时解析后端真实消息 ID ----------
@@ -173,10 +224,11 @@ async function loadBackendData() {
       detail: `来自 ${m.sender}`, deadline: "尽快处理", done: m.status === "synced" || m.status === "replied",
     }));
 
-    // 3) 应用连接：后端连接状态
+    // 3) 应用连接：后端连接状态（含真实长连接运行状态 running）
     if (appsData && Array.isArray(appsData)) {
       state.apps = appsData.map(a => ({
-        key: a.key, connected: !!a.connected, account: a.account || "",
+        key: a.key, connected: !!a.connected, running: !!a.running,
+        account: a.account || "",
         org: a.org || "", lastSync: a.last_sync || "", successRate: a.success_rate || "",
         since: a.since || "", note: a.note || "",
       }));

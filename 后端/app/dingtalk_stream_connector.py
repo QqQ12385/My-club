@@ -28,6 +28,11 @@ _APP_SECRET = ""
 _stream_client = None
 _client_ready = False
 
+# 运行状态：线程引用 + 停止标志，供"应用连接"页真正启停长连接
+_stream_thread: threading.Thread | None = None
+_stop_event = threading.Event()
+_running = False
+
 
 def _init_sdk():
     """首次调用时 import SDK 并返回可用状态。未装 SDK 或未配凭据返回 None。"""
@@ -123,22 +128,71 @@ def set_recall_handler(fn):
 
 def start_stream_forever():
     """在后台线程里跑 Stream 长连接（阻塞式）。无凭据时直接返回。"""
+    global _running
     client = _init_sdk()
     if not client:
         log.info("未配置钉钉企业应用凭据，跳过 Stream 接收")
+        _running = False
         return
     log.info("钉钉 Stream 长连接启动中（clientId=%s）...", _APP_KEY)
+    _running = True
     try:
-        client.start_forever()
-    except Exception as e:
-        log.exception("钉钉 Stream 异常退出: %s", e)
+        # 在独立线程里跑，主线程轮询 stop_event，停止时关闭 client 触发退出
+        def _run():
+            try:
+                client.start_forever()
+            except Exception as e:
+                log.info("钉钉 Stream 连接结束: %s", e)
+        worker = threading.Thread(target=_run, daemon=True, name="dingtalk-stream-worker")
+        worker.start()
+        while not _stop_event.is_set():
+            if not worker.is_alive():
+                # 连接意外断开：尝试自动重连（未要求停止时）
+                if not _stop_event.is_set():
+                    log.info("钉钉 Stream 意外断开，1.5s 后重连")
+                    _stop_event.wait(1.5)
+                    worker = threading.Thread(target=_run, daemon=True, name="dingtalk-stream-worker")
+                    worker.start()
+                else:
+                    break
+            else:
+                _stop_event.wait(0.5)
+    finally:
+        _running = False
+        log.info("钉钉 Stream 长连接已停止")
 
 
 def start_in_background():
     """非阻塞：起一个守护线程跑 Stream。"""
-    t = threading.Thread(target=start_stream_forever, daemon=True, name="dingtalk-stream")
-    t.start()
-    return t
+    global _stream_thread, _stop_event, _running
+    _stop_event.clear()
+    _stream_thread = threading.Thread(target=start_stream_forever, daemon=True, name="dingtalk-stream")
+    _stream_thread.start()
+    return _stream_thread
+
+
+def stop():
+    """真正停止钉钉长连接：置停止标志 + 关 client，线程自然退出。
+    下次 start_in_background 会重建 client 并重新拉起。"""
+    global _stream_thread, _client_ready, _stream_client, _running
+    _stop_event.set()
+    # 触发 client 底层连接关闭，让 start_forever 尽快返回
+    try:
+        c = _stream_client
+        if c is not None:
+            close = getattr(c, "stop", None) or getattr(c, "close", None)
+            if close:
+                close()
+    except Exception as e:
+        log.warning("关闭钉钉 client 异常: %s", e)
+    _client_ready = False
+    _stream_client = None
+    _running = False
+    log.info("已请求停止钉钉 Stream 长连接")
+
+
+def is_running() -> bool:
+    return _running and (_stream_thread is not None and _stream_thread.is_alive())
 
 
 async def upload_media(filename: str, content: bytes) -> dict:

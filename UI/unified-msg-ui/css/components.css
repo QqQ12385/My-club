@@ -248,3 +248,12 @@
 .friend-form input:focus, .friend-form select:focus {
   outline: none; border-color: var(--primary);
 }
+
+/* 连接器接收状态：运行中的绿色小圆点 */
+.live-dot {
+  display: inline-block; width: 7px; height: 7px;
+  border-radius: 50%; background: #22c55e;
+  margin-right: 5px; vertical-align: 1px;
+  animation: livePulse 1.4s ease-in-out infinite;
+}
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

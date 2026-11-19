@@ -48,6 +48,28 @@ function setAppConnected(key, connected) {
   return app;
 }
 
+/* 更新应用的连接 + 真实长连接运行状态（后端 /api/apps 或 channel_update 推送） */
+function setAppRunning(key, running) {
+  const app = getApp(key);
+  if (!app) return null;
+  app.running = !!running;
+  return app;
+}
+
+/* 用后端返回的一行 app 数据整体刷新 state.apps 里的对应项 */
+function updateAppFromServer(row) {
+  const app = getApp(row.key);
+  if (!app) return null;
+  app.connected = !!row.connected;
+  app.running = typeof row.running === "boolean" ? row.running : app.running;
+  if (row.account) app.account = row.account;
+  if (row.org) app.org = row.org;
+  if (row.last_sync) app.lastSync = row.last_sync;
+  if (row.success_rate) app.successRate = row.success_rate;
+  if (row.note !== undefined) app.note = row.note;
+  return app;
+}
+
 /* 主备通道互换：改的是 config.js 的 CHANNEL_PLAN（发送路由的唯一来源） */
 function swapPrimaryChannel(key) {
   const plan = CHANNEL_PLAN[key];

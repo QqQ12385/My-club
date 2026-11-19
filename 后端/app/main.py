@@ -347,19 +347,36 @@ def startup():
     _main_loop = asyncio.get_event_loop()
     db.init_db()
     _seed_admin()
-    _start_dingtalk_stream()
-    _start_feishu_stream()
-    _apply_feishu_name_map()
-    # 应用连接种子
+    # 应用连接种子（先落库，再按 DB 里 connected 状态决定是否真正拉起长连接）
     for a in APPS_SEED:
         db.execute(
             "INSERT OR IGNORE INTO apps(key,connected,account,org,last_sync,success_rate,since,note)"
             " VALUES(:key,:connected,:account,:org,:last_sync,:success_rate,:since,:note)", a)
+    # 尊重用户在此前会话里的连接意愿：DB connected=0 的平台不拉起长连接
+    _restore_stream_connections()
+    _apply_feishu_name_map()
     # 个人资料种子
     if not db.query("SELECT 1 FROM profile WHERE id=1"):
         db.execute("INSERT INTO profile(id, data) VALUES(1, ?)", (json.dumps(PROFILE_DEFAULT, ensure_ascii=False),))
     # 演示种子消息：初赛评审反馈改为纯真实数据——不再注入，且清理老库残留
     _cleanup_demo_messages()
+
+
+def _restore_stream_connections():
+    """按 DB 里 apps.connected 状态恢复长连接：connected=1 的平台启动接收线程，
+    connected=0 的保持停止。避免重启后「已断开」的平台又被拉起。"""
+    for key in ("dingtalk", "feishu"):
+        rows = db.query("SELECT connected FROM apps WHERE key=?", (key,))
+        # 无记录（首次启动）默认视为已连接
+        connected = bool(rows[0]["connected"]) if rows else True
+        if connected:
+            if key == "dingtalk":
+                _start_dingtalk_stream()
+            else:
+                _start_feishu_stream()
+        else:
+            log = logging.getLogger("stream-runtime")
+            log.info("%s 在数据库中标记为已断开，跳过启动长连接", key)
 
 
 def _cleanup_demo_messages():
@@ -659,10 +676,44 @@ def patch_me(p: ProfilePatch):
 
 
 # ------------------------------------------------------------------ 应用连接
+def _stream_runtime(key: str) -> bool:
+    """返回该平台长连接是否真正在运行（钉钉/飞书走 Stream 长连接）。"""
+    if key == "dingtalk":
+        return dt_stream.is_running()
+    if key == "feishu":
+        return fs_stream.is_running()
+    # 微信 RPA：无长连接，以 DB connected 标志为准
+    return False
+
+
+def _start_stream(key: str) -> None:
+    """真正启动对应平台的长连接接收线程（已运行则跳过）。"""
+    if key == "dingtalk":
+        if dt_stream.is_running():
+            return
+        _start_dingtalk_stream()
+    elif key == "feishu":
+        if fs_stream.is_running():
+            return
+        _start_feishu_stream()
+
+
+def _stop_stream(key: str) -> None:
+    """真正停止对应平台的长连接接收线程。"""
+    if key == "dingtalk":
+        dt_stream.stop()
+    elif key == "feishu":
+        fs_stream.stop()
+
+
 def app_row(r) -> dict:
-    return {"key": r["key"], "connected": bool(r["connected"]), "account": r["account"],
-            "org": r["org"], "last_sync": r["last_sync"], "success_rate": r["success_rate"],
-            "since": r["since"], "note": r["note"]}
+    row = {"key": r["key"], "connected": bool(r["connected"]), "account": r["account"],
+           "org": r["org"], "last_sync": r["last_sync"], "success_rate": r["success_rate"],
+           "since": r["since"], "note": r["note"]}
+    # 附带真实长连接运行状态：connected 是用户意愿（DB），running 是线程实际状态
+    if r["key"] in ("dingtalk", "feishu"):
+        row["running"] = _stream_runtime(r["key"])
+    return row
 
 
 @app.get("/api/apps")
@@ -670,15 +721,76 @@ def list_apps():
     return [app_row(r) for r in db.query("SELECT * FROM apps")]
 
 
+class AppAddReq(BaseModel):
+    key: str                            # 平台 key：dingtalk | feishu | wechat
+    account: str = ""                   # 接入账号/标识
+    org: str = ""                       # 所属组织
+    note: str = ""                      # 说明
+
+
+# 可接入平台清单（真正实现收发逻辑的平台；新增平台需先实现连接器代码）
+ADDABLE_PLATFORMS = {
+    "dingtalk": {"name": "钉钉", "org": "星辰科技 · 钉钉组织", "account": "gary@xingchen-tech.com"},
+    "feishu":   {"name": "飞书", "org": "飞书组织 · 长连接接入", "account": "飞书自建应用"},
+    "wechat":   {"name": "微信", "org": "个人微信 · RPA接入", "account": "wxid_gary_1024"},
+}
+
+
+@app.post("/api/apps")
+async def add_app(req: AppAddReq, authorization: str | None = Header(None)):
+    """添加/启用一个连接器。仅限已实现收发逻辑的平台（ADDABLE_PLATFORMS）。
+    已存在的平台则更新其信息并重新连接；新平台插入 apps 表并启动长连接。"""
+    key = req.key.strip()
+    if key not in ADDABLE_PLATFORMS:
+        raise HTTPException(400, f"暂不支持接入平台「{key}」，可接入：{', '.join(ADDABLE_PLATFORMS)}")
+    meta = ADDABLE_PLATFORMS[key]
+    account = req.account or meta["account"]
+    org = req.org or meta["org"]
+    note = req.note or ("企业内部机器人 · Stream 双向收发" if key == "dingtalk"
+                        else "企业自建应用 · WebSocket长连接" if key == "feishu"
+                        else "Power Automate 桌面端采集")
+    exists = db.query("SELECT 1 FROM apps WHERE key=?", (key,))
+    if exists:
+        db.execute("UPDATE apps SET connected=1, account=?, org=?, note=? WHERE key=?",
+                   (account, org, note, key))
+    else:
+        db.execute("INSERT INTO apps(key,connected,account,org,last_sync,success_rate,since,note)"
+                   " VALUES(?,1,?,?,?,?,?,?)",
+                   (key, account, org, time.strftime("%H:%M"), "100%",
+                    time.strftime("%Y-%m-%d"), note))
+    db.add_op(f"添加/启用连接器 {meta['name']}")
+    # 真正启动长连接（钉钉/飞书）
+    _start_stream(key)
+    await hub.broadcast({"type": "channel_update",
+                         "data": {"key": key, "connected": True, "running": True}})
+    return app_row(db.query("SELECT * FROM apps WHERE key=?", (key,))[0])
+
+
+@app.delete("/api/apps/{key}")
+async def remove_app(key: str, authorization: str | None = Header(None)):
+    """移除连接器：停止长连接并从应用清单删除（可再次通过「添加」恢复）。"""
+    if key not in ADDABLE_PLATFORMS:
+        raise HTTPException(404, f"未知平台 {key}")
+    _stop_stream(key)
+    db.execute("DELETE FROM apps WHERE key=?", (key,))
+    db.add_op(f"移除连接器 {key}")
+    await hub.broadcast({"type": "channel_update",
+                         "data": {"key": key, "connected": False, "running": False, "removed": True}})
+    return {"ok": True}
+
+
 @app.post("/api/apps/{key}/connect")
 async def connect_app(key: str):
     _require_app(key)
+    # 真正启动长连接（钉钉/飞书）；微信 RPA 无长连接，仅做健康检查
+    _start_stream(key)
     hc = await CONNECTORS[key].health_check()
     t = time.strftime("%H:%M")
     db.execute("UPDATE apps SET connected=1, last_sync=? WHERE key=?", (t, key))
     db.add_op(f"重新连接平台 {key}")
+    running = _stream_runtime(key) if key in ("dingtalk", "feishu") else True
     await hub.broadcast({"type": "channel_update",
-                         "data": {"key": key, "connected": True,
+                         "data": {"key": key, "connected": True, "running": running,
                                   "simulated": hc.get("simulated", False)}})
     return app_row(db.query("SELECT * FROM apps WHERE key=?", (key,))[0])
 
@@ -686,9 +798,12 @@ async def connect_app(key: str):
 @app.post("/api/apps/{key}/disconnect")
 async def disconnect_app(key: str):
     _require_app(key)
+    # 真正停止长连接，停止接收新消息
+    _stop_stream(key)
     db.execute("UPDATE apps SET connected=0 WHERE key=?", (key,))
     db.add_op(f"断开平台 {key}")
-    await hub.broadcast({"type": "channel_update", "data": {"key": key, "connected": False}})
+    await hub.broadcast({"type": "channel_update",
+                         "data": {"key": key, "connected": False, "running": False}})
     return app_row(db.query("SELECT * FROM apps WHERE key=?", (key,))[0])
 
 
@@ -698,8 +813,13 @@ async def test_app(key: str):
     t0 = time.perf_counter()
     hc = await CONNECTORS[key].health_check()
     latency = round((time.perf_counter() - t0) * 1000)
-    return {"ok": hc["ok"], "latencyMs": latency,
+    # 长连接平台额外回报真实运行状态
+    running = _stream_runtime(key) if key in ("dingtalk", "feishu") else None
+    resp = {"ok": hc["ok"], "latencyMs": latency,
             **({"reason": hc["reason"]} if "reason" in hc and not hc["ok"] else {})}
+    if running is not None:
+        resp["running"] = running
+    return resp
 
 
 class ChannelPatch(BaseModel):

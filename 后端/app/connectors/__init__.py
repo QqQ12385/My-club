@@ -117,4 +117,34 @@ class WeChatRPAConnector:
 dingtalk = DingTalkConnector()
 wechat_rpa = WeChatRPAConnector()
 
-CONNECTORS = {c.key: c for c in (dingtalk, wechat_rpa)}
+
+# ---------------------------------------------------------------- 飞书（企业自建应用 · 长连接）
+class FeishuConnector:
+    """飞书企业自建应用连接器。收发走 feishu_stream_connector（长连接），
+    此处只提供 key + 健康检查，供统一入口的 connect/test 接口调用。
+    是否真实可用取决于 FEISHU_APP_ID/SECRET 是否已配置。"""
+    key = "feishu"
+
+    @property
+    def simulated(self) -> bool:
+        return not (settings.FEISHU_APP_ID and settings.FEISHU_APP_SECRET)
+
+    async def health_check(self) -> dict:
+        if self.simulated:
+            return {"ok": True, "simulated": True, "reason": "未配置AppID/Secret，待配置模式"}
+        try:
+            from ..feishu_stream_connector import _get_token
+            token = await _get_token()
+            if not token:
+                return {"ok": False, "reason": "获取飞书 tenant_access_token 失败，请核对 App ID/Secret"}
+            return {"ok": True, "simulated": False}
+        except Exception as e:
+            return {"ok": False, "reason": f"飞书健康检查异常: {e}"}
+
+    async def send(self, content: str, reply_to: str = "", chat: str = "") -> SendResult:
+        return SendResult(False, "飞书发送请走 feishu_stream_connector.send_message")
+
+
+feishu = FeishuConnector()
+
+CONNECTORS = {c.key: c for c in (dingtalk, wechat_rpa, feishu)}

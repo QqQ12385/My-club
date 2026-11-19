@@ -240,6 +240,7 @@ function renderApps() {
   const knownApps = state.apps.filter(a => PLATFORMS[a.key]);
   const cards = knownApps.map(a => {
     const plan = CHANNEL_PLAN[a.key] || { primary: "api", backup: "rpa" };
+    const running = !!a.running;
     return `
       <div class="app-card ${a.connected ? "" : "off"}">
         <div class="ac-head">
@@ -262,6 +263,7 @@ function renderApps() {
           </div>
           <div class="ac-row"><span>上次同步</span><b>${a.connected ? a.lastSync : "—"}</b></div>
           <div class="ac-row"><span>近 7 日成功率</span><b>${a.connected ? a.successRate : "—"}</b></div>
+          ${a.key !== "wechat" ? `<div class="ac-row"><span>接收状态</span><b>${running ? '<i class="live-dot"></i> 接收中' : "已停止"}</b></div>` : ""}
         </div>
 
         <div class="ac-note">${a.note}</div>
@@ -270,7 +272,7 @@ function renderApps() {
           <button data-app="${a.key}" data-act="test">测试连接</button>
           <button data-app="${a.key}" data-act="swap">切换主备</button>
           <button data-app="${a.key}" data-act="toggle" class="${a.connected ? "danger" : "primary"}">
-            ${a.connected ? "断开连接" : "连接"}
+            ${a.connected ? "停止连接" : "连接"}
           </button>
         </div>
       </div>`;
@@ -567,6 +569,57 @@ async function submitFriendAdd() {
   }
 }
 
+/* ---------- 添加连接器弹窗 ---------- */
+function openAppAddLayer() {
+  $("appPlatformSelect").value = "dingtalk";
+  $("appAccountInput").value = "";
+  $("appOrgInput").value = "";
+  const layer = $("appAddLayer");
+  layer.hidden = false;
+  layer.classList.add("show");
+  setTimeout(() => $("appPlatformSelect").focus(), 80);
+}
+
+function closeAppAddLayer() {
+  const layer = $("appAddLayer");
+  layer.classList.remove("show");
+  layer.hidden = true;
+}
+
+async function submitAppAdd() {
+  const key = $("appPlatformSelect").value;
+  const account = $("appAccountInput").value.trim();
+  const org = $("appOrgInput").value.trim();
+  const btn = $("appAddBtn2");
+  btn.disabled = true;
+  btn.textContent = "添加中…";
+  try {
+    const resp = await fetch(`${API_BASE}/apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(window.AUTH_TOKEN ? { "Authorization": "Bearer " + AUTH_TOKEN } : {}),
+      },
+      body: JSON.stringify({ key, account, org }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok) {
+      closeAppAddLayer();
+      updateAppFromServer(data);
+      renderApps();
+      renderAll();
+      toast(`连接器「${PLATFORMS[key].name}」已添加并连接`);
+    } else {
+      toast("添加失败：" + (data.detail || data.reason || "未知错误"));
+    }
+  } catch (e) {
+    toast("后端不可达，请确认启动.bat 已运行");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "添加并连接";
+  }
+}
+
 /* ---------- 消息页「联系人」tab 面板（紧凑列表，微信式）---------- */
 function renderContactTabPanel() {
   const el = $("contactTabList");
@@ -644,6 +697,13 @@ async function deleteFriend(id, name) {
   });
   $("friendAddLayer").addEventListener("click", (e) => {
     if (e.target === $("friendAddLayer")) closeFriendAdd();
+  });
+
+  // 添加连接器弹窗
+  $("closeAppAdd").onclick = closeAppAddLayer;
+  $("appAddBtn2").onclick = submitAppAdd;
+  $("appAddLayer").addEventListener("click", (e) => {
+    if (e.target === $("appAddLayer")) closeAppAddLayer();
   });
 
 /* 站内好友：优先打开与 123 一样的完整聊天页（有历史消息时）。
@@ -797,7 +857,7 @@ function openUserChat(name, conv) {
   // 应用连接：测试 / 切换主备 / 连接与断开 / 添加应用
   $("viewApps").addEventListener("click", (e) => {
     if (e.target.closest("#addAppBtn") || e.target.closest("#addAppCard")) {
-      toast("新平台接入：实现接收 / 发送 / 健康检查三个方法即可复用统一入口");
+      openAppAddLayer();
       return;
     }
 
@@ -811,8 +871,15 @@ function openUserChat(name, conv) {
 
     if (btn.dataset.act === "test") {
       if (!app.connected) { toast(`${name}未连接，请先连接后再测试`); return; }
-      const ms = 90 + Math.floor(Math.random() * 120);
-      toast(`${name}连通性正常 · 往返延迟 ${ms}ms`);
+      btn.disabled = true;
+      const oldText = btn.textContent;
+      btn.textContent = "测试中…";
+      apiTestApp(key).then(d => {
+        const latency = d.latencyMs != null ? ` · 往返 ${d.latencyMs}ms` : "";
+        if (d.ok) toast(`${name}连通性正常${latency}`);
+        else toast(`${name}连接异常：${d.reason || "未知错误"}`);
+      }).catch(err => toast(`${name}测试失败：${err.message}`))
+        .finally(() => { btn.disabled = false; btn.textContent = oldText; });
       return;
     }
 
@@ -826,21 +893,26 @@ function openUserChat(name, conv) {
 
     if (btn.dataset.act === "toggle") {
       if (app.connected) {
-        setAppConnected(key, false);
-        renderApps();
-        renderAll();
-        toast(`${name}已断开：历史消息仍可查看，发送将失败`);
+        // 真正断开：调后端停止长连接（停止接收新消息）
+        btn.disabled = true;
+        btn.textContent = "停止中…";
+        apiDisconnectApp(key).then(() => {
+          renderApps();
+          renderAll();
+          toast(`${name}已停止：长连接已断开，不再接收新消息（历史消息仍可查看）`);
+        }).catch(err => toast(`停止失败：${err.message}`))
+          .finally(() => { btn.disabled = false; });
         return;
       }
-      // 连接过程给一个短延时，贴近真实握手
+      // 真正连接：调后端启动长连接（开始接收消息）
       btn.disabled = true;
       btn.textContent = "连接中…";
-      setTimeout(() => {
-        setAppConnected(key, true);
+      apiConnectApp(key).then(() => {
         renderApps();
         renderAll();
         toast(`${name}连接成功，开始接收消息`);
-      }, 800);
+      }).catch(err => toast(`连接失败：${err.message}`))
+        .finally(() => { btn.disabled = false; });
     }
   });
 }
