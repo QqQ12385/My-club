@@ -275,8 +275,11 @@ async def download_resource(message_id: str, file_key: str, res_type: str = "fil
                             headers={"Authorization": f"Bearer {token}"},
                             params={"type": res_type})
             if r.status_code != 200:
+                log.error("资源下载失败 msg=%s key=%s type=%s HTTP=%s body=%s",
+                          message_id, file_key, res_type, r.status_code, r.text[:300])
                 return {"ok": False, "content": b"",
-                        "reason": f"飞书资源下载失败: HTTP {r.status_code}"}
+                        "reason": f"飞书资源下载失败: HTTP {r.status_code} {r.text[:120]}"}
+            log.info("资源下载成功 msg=%s type=%s %d bytes", message_id, res_type, len(r.content))
             return {"ok": True, "content": r.content}
     except Exception as e:
         return {"ok": False, "content": b"", "reason": f"飞书资源下载异常: {e}"}

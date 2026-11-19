@@ -186,12 +186,26 @@ def _start_dingtalk_stream():
 
 # ---------------- 飞书：入站消息处理 ----------------
 log_fs = logging.getLogger("feishu-ingest")
+# 飞书入站诊断：同步写文件日志（含收到的事件类型、文件下载结果），便于排查
+try:
+    _fs_logfile = logging.FileHandler(Path(__file__).resolve().parent / "feishu_ingest.log", encoding="utf-8")
+    _fs_logfile.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log_fs.addHandler(_fs_logfile)
+    log_fs.setLevel(logging.DEBUG)
+    fs_stream_log = logging.getLogger("feishu-stream")
+    fs_stream_log.addHandler(_fs_logfile)
+    fs_stream_log.setLevel(logging.DEBUG)
+except Exception:
+    pass
 
 
 def _on_feishu_message(item: dict) -> None:
     """飞书长连接收到 im.message.receive_v1 事件：归一化入库 + WS 推送。
     文本消息直接入库；图片/文件消息先拉取字节留档再入库（可预览/下载）。"""
     try:
+        log_fs.debug("收到飞书事件: type=%s chat=%s msg_id=%s content=%s",
+                     item.get("message_type"), item.get("chat_type"),
+                     item.get("message_id"), (item.get("content") or "")[:200])
         async def _run():
             mtype = item.get("message_type", "text")
             if mtype == "text":
