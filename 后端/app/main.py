@@ -215,7 +215,7 @@ def _on_feishu_message(item: dict) -> None:
                 open_id = item.get("open_id") or ""
                 sender_name = item.get("sender_name") or ""
                 if not sender_name and open_id:
-                    sender_name = await fs_stream.get_user_name(open_id)
+                    sender_name = await fs_stream.resolve_user_name(open_id)
                     if sender_name:
                         # 姓名解析成功后，修正历史消息里以 open_id 落库的发送人名
                         db.execute("UPDATE messages SET sender=? WHERE platform='feishu' AND sender=?",
@@ -279,7 +279,7 @@ async def _ingest_feishu_file(item: dict) -> None:
             return
         sender = item.get("sender_name")
         if not sender and item.get("open_id"):
-            sender = await fs_stream.get_user_name(item["open_id"]) or f"飞书用户{item['open_id'][-6:]}"
+            sender = await fs_stream.resolve_user_name(item["open_id"]) or f"飞书用户{item['open_id'][-6:]}"
         raw = {"platform": "feishu", "sender": sender or "飞书用户",
                "chat": "飞书群聊" if item.get("chat_type") == "group" else "飞书单聊",
                "content": f"📎 [文件] {filename}",
@@ -312,6 +312,31 @@ def _start_feishu_stream():
     fs_stream.start_in_background()
 
 
+def _apply_feishu_name_map():
+    """按 FEISHU_NAME_MAP 批量修正历史飞书消息的发送人显示名（启动时执行一次）。
+    同时把 open_id 落库的、以及该 open_id 之前解析出的真实姓名，都改成映射显示名。"""
+    try:
+        m = fs_stream._name_map()
+        if not m:
+            return
+        for open_id, display in m.items():
+            # 1) 历史上以 open_id 落库的（姓名解析失败时）
+            db.execute("UPDATE messages SET sender=? WHERE platform='feishu' AND sender=?",
+                       (display, open_id))
+            # 2) 历史上已解析成真实姓名的：查通讯录拿旧姓名一起改
+            old_name = db.query("SELECT sender FROM messages WHERE platform='feishu' "
+                                "AND sender != ? AND sender != '' ORDER BY created_at DESC LIMIT 1",
+                                (open_id,))
+            if old_name:
+                old = old_name[0]["sender"]
+                if old not in (display, open_id):
+                    db.execute("UPDATE messages SET sender=? WHERE platform='feishu' AND sender=?",
+                               (display, old))
+        log_fs.info("已按显示名映射修正飞书历史消息发送人：%s", m)
+    except Exception as e:
+        log_fs.warning("修正飞书显示名失败：%s", e)
+
+
 _main_loop: asyncio.AbstractEventLoop = None
 log_dt = logging.getLogger("dingtalk-ingest")
 
@@ -324,6 +349,7 @@ def startup():
     _seed_admin()
     _start_dingtalk_stream()
     _start_feishu_stream()
+    _apply_feishu_name_map()
     # 应用连接种子
     for a in APPS_SEED:
         db.execute(

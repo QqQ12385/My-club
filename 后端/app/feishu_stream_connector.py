@@ -288,12 +288,35 @@ async def download_resource(message_id: str, file_key: str, res_type: str = "fil
 _user_name_cache: dict = {}
 
 
+def _name_map() -> dict:
+    """解析 FEISHU_NAME_MAP 配置（open_id=显示名，逗号分隔）。"""
+    raw = settings.FEISHU_NAME_MAP or ""
+    result = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        if k.strip() and v.strip():
+            result[k.strip()] = v.strip()
+    return result
+
+
+async def resolve_user_name(open_id: str) -> str:
+    """解析飞书用户显示名：优先用 FEISHU_NAME_MAP 映射，否则实时查通讯录。
+    这样用户改映射或改姓名后，下一条消息即用新名。"""
+    if not open_id:
+        return ""
+    mapped = _name_map().get(open_id)
+    if mapped:
+        return mapped
+    return await get_user_name(open_id)
+
+
 async def get_user_name(open_id: str) -> str:
-    """按 open_id 查用户姓名（缓存，失败返回空）。"""
+    """按 open_id 实时查用户姓名（不缓存，用户改姓名后下条消息即用新名）。"""
     if not (is_configured() and open_id):
         return ""
-    if open_id in _user_name_cache:
-        return _user_name_cache[open_id]
     token = await _get_token()
     if not token:
         return ""
@@ -306,7 +329,8 @@ async def get_user_name(open_id: str) -> str:
             user = (data.get("data") or {}).get("user") or {}
             name = user.get("name") or ""
             if name:
-                _user_name_cache[open_id] = name
+                log.info("查询用户姓名 open_id=%s -> %s", open_id, name)
             return name
-    except Exception:
+    except Exception as e:
+        log.warning("查询用户姓名失败 open_id=%s: %s", open_id, e)
         return ""

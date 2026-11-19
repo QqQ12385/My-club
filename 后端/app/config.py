@@ -27,6 +27,11 @@ class Settings:
     FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
     FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
 
+    # 飞书显示名映射：open_id -> 显示名（逗号分隔多组，冒号分隔键值）
+    # 例：ou_xxx=张三,ou_yyy=李四 —— 飞书通讯录接口只返回注册姓名，无昵称字段，
+    # 用此映射把发送人在统一消息中心显示成自定义名字（可随改随生效）
+    FEISHU_NAME_MAP = os.getenv("FEISHU_NAME_MAP", "")
+
     RPA_MODE = os.getenv("RPA_MODE", "simulated")
     RPA_FLOW_URL = os.getenv("RPA_FLOW_URL", "")
 
