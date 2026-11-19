@@ -156,7 +156,7 @@ add_body(doc, "接口协议不限于 HTTP：系统同时预留 MQTT 主题接入
 
 # ============ 3 其他 ============
 add_heading1(doc, "3. 其他")
-add_body(doc, "AI 专项对话链接：【待填写】")
+add_body(doc, "AI 专项对话链接：https://www.doubao.com/thread/xHUSWiR2dh9pkXq2l")
 add_body(doc, "代码仓库地址：【待填写】")
 
 doc.save(OUT)

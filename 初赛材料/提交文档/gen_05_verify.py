@@ -130,7 +130,7 @@ add_body(doc, "除上述截图验证外，还完成了以下验证：①消息�
 
 # ============ 4 其他 ============
 add_heading1(doc, "4. 其他")
-add_body(doc, "AI 专项对话链接：【待填写】")
+add_body(doc, "AI 专项对话链接：https://www.doubao.com/thread/xUpbrXocJpSDH07JW")
 add_body(doc, "代码仓库地址：【待填写】")
 
 doc.save(OUT)

@@ -264,7 +264,7 @@ for key, label in sql_names:
 add_heading1(doc, "4. 其他")
 add_body(doc, "本项目的数据库迁移策略：启动时通过 PRAGMA table_info 检查列是否存在，对老库自动执行 ALTER TABLE 补列"
              "（如 conv_id、owner、dingtalk_unionid、file_id），保证历史数据库平滑升级，不丢失已有消息数据。")
-add_body(doc, "AI 专项对话链接：【待填写】")
+add_body(doc, "AI 专项对话链接：https://www.doubao.com/thread/x8EnwzkHnb48qfmjB")
 
 doc.save(OUT)
 print("SAVED:", OUT)
