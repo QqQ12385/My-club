@@ -282,10 +282,15 @@ async def download_resource(message_id: str, file_key: str, res_type: str = "fil
         return {"ok": False, "content": b"", "reason": f"飞书资源下载异常: {e}"}
 
 
+_user_name_cache: dict = {}
+
+
 async def get_user_name(open_id: str) -> str:
-    """按 open_id 查用户姓名（尽力而为，失败返回空）。"""
+    """按 open_id 查用户姓名（缓存，失败返回空）。"""
     if not (is_configured() and open_id):
         return ""
+    if open_id in _user_name_cache:
+        return _user_name_cache[open_id]
     token = await _get_token()
     if not token:
         return ""
@@ -296,6 +301,9 @@ async def get_user_name(open_id: str) -> str:
                             params={"user_id_type": "open_id"})
             data = r.json()
             user = (data.get("data") or {}).get("user") or {}
-            return user.get("name") or ""
+            name = user.get("name") or ""
+            if name:
+                _user_name_cache[open_id] = name
+            return name
     except Exception:
         return ""

@@ -198,8 +198,16 @@ def _on_feishu_message(item: dict) -> None:
                 text = fs_stream._extract_text(item.get("content", ""))
                 if not text:
                     return
+                open_id = item.get("open_id") or ""
+                sender_name = item.get("sender_name") or ""
+                if not sender_name and open_id:
+                    sender_name = await fs_stream.get_user_name(open_id)
+                    if sender_name:
+                        # 姓名解析成功后，修正历史消息里以 open_id 落库的发送人名
+                        db.execute("UPDATE messages SET sender=? WHERE platform='feishu' AND sender=?",
+                                   (sender_name, open_id))
                 raw = {"platform": "feishu",
-                       "sender": item.get("sender_name") or item.get("open_id") or "飞书用户",
+                       "sender": sender_name or open_id or "飞书用户",
                        "chat": "飞书群聊" if item.get("chat_type") == "group" else "飞书单聊",
                        "content": text,
                        "msg_key": item.get("message_id"),
