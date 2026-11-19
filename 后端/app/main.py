@@ -254,9 +254,16 @@ async def _ingest_feishu_file(item: dict) -> None:
             filename = f"飞书图片-{time.strftime('%H%M%S')}.png"
             res_type = "image"
         else:
-            fnode = cdata.get("file") or cdata.get("audio") or cdata.get("media") or {}
-            file_key = fnode.get("file_key") or ""
-            filename = fnode.get("file_name") or f"飞书文件-{time.strftime('%H%M%S')}.bin"
+            # 飞书文件事件的 file_key/file_name 同样直接在 content 顶层
+            file_key = (cdata.get("file_key")
+                        or (cdata.get("file") or {}).get("file_key")
+                        or (cdata.get("audio") or {}).get("file_key")
+                        or (cdata.get("media") or {}).get("file_key") or "")
+            filename = (cdata.get("file_name")
+                        or (cdata.get("file") or {}).get("file_name")
+                        or (cdata.get("audio") or {}).get("file_name")
+                        or (cdata.get("media") or {}).get("file_name")
+                        or f"飞书文件-{time.strftime('%H%M%S')}.bin")
             res_type = "file"
         if not (msg_id and file_key):
             log_fs.warning("飞书文件消息缺少 message_id/file_key: %s", item)
