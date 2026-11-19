@@ -1241,6 +1241,7 @@ async def _auto_reply(mid: str, content: str):
             db.execute("UPDATE messages SET status='replied', unread=0 WHERE id=?", (mid,))
             db.add_trace(mid, "AI自动回复", f"{result.channel} 通道自动发送：{text}")
             await hub.broadcast({"type": "status_update", "data": {"id": mid, "status": "replied"}})
+            await hub.broadcast({"type": "thread_update", "data": {"id": mid}})  # 让网页实时补上 AI 气泡
             asyncio.get_event_loop().call_later(1.1, lambda: _sync_later(mid, result.channel))
         else:
             db.add_trace(mid, "AI自动回复失败", f"{result.channel}：{result.reason}")
