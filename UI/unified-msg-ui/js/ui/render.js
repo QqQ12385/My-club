@@ -198,10 +198,12 @@ function renderTodos() {
       if (!t) return;
       t.done = !t.done;
       const msg = state.messages.find(m => m.id === t.msgId);
-      if (msg && t.done && (msg.status === "received" || msg.status === "processing")) {
+      // 人工勾选完成即回流（含 AI 已自动回复的消息）：replied 也纳入回流
+      if (msg && t.done && ["received", "processing", "replied"].includes(msg.status)) {
         msg.status = "synced";
         addTrace(msg.id, "已同步到平台", `待办「${t.title}」已完成，处理状态回流原平台`);
       }
+      if (typeof saveTodoDone === "function") saveTodoDone();
       renderAll();
       toast(t.done ? "待办已完成，状态同步回原平台" : "已恢复为待办");
     };

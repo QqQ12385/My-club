@@ -90,35 +90,68 @@ def _build_event_handler():
 
 
 def _stub_pycryptodome():
-    """部分 Windows 环境的应用控制策略会拦截 pycryptodome 的原生 .pyd，
-    导致 `import lark_oapi` 直接失败。SDK 仅在「加密回调」场景才真正用 AES，
-    本项目不使用该场景，故在 Crypto 不可用时注入桩模块，保证 SDK 可导入。"""
-    try:
-        import Crypto  # noqa: F401
-        return
-    except Exception:
-        pass
+    """部分 Windows 环境的应用控制策略会拦截 pycryptodome 的原生 .pyd
+    （如 Crypto.Cipher._raw_aes*.pyd，WinError 4551），导致 `import lark_oapi`
+    直接失败。SDK 仅在「加密回调」场景才真正用 AES，本项目走长连接、不使用
+    加密回调，故无条件预注入完整的 Crypto 桩模块，覆盖 AES 及其底层 _raw_*
+    依赖，保证 SDK 可导入。桩方法一旦被真正调用会立即报错，绝不静默出错。"""
     import sys, types
-    try:
-        crypto = types.ModuleType("Crypto")
-        cipher = types.ModuleType("Crypto.Cipher")
-        aes_mod = types.ModuleType("Crypto.Cipher.AES")
 
-        class _AESStub:  # 占位：本项目不会真正调用
+    # 已经注入过则跳过（避免重复覆盖真实模块）
+    if getattr(_stub_pycryptodome, "_done", False):
+        return
+
+    def _mod(name):
+        m = types.ModuleType(name)
+        sys.modules[name] = m
+        return m
+
+    def _stub_cipher():
+        raise RuntimeError("pycryptodome 被系统策略拦截，且本项目未使用加密回调，不应调用到此")
+
+    try:
+        crypto = _mod("Crypto")
+        cipher = _mod("Crypto.Cipher")
+        util = _mod("Crypto.Util")
+        raw_api = _mod("Crypto.Util._raw_api")
+        raw_aes = _mod("Crypto.Cipher._raw_aes")
+        raw_aes_1 = _mod("Crypto.Cipher._raw_aes_1")
+        hash_mod = _mod("Crypto.Hash")
+        sha256 = _mod("Crypto.Hash._sha256")
+        random_mod = _mod("Crypto.Random")
+        osrng = _mod("Crypto.Random.OSRNG")
+
+        class _AESStub:
             MODE_GCM = 12
             MODE_CBC = 2
+            MODE_ECB = 1
+            MODE_CTR = 6
+            block_size = 16
+            key_size = (16, 24, 32)
 
             @staticmethod
             def new(*args, **kwargs):
-                raise RuntimeError("pycryptodome 被系统策略拦截，且未使用加密回调，不应调用到此")
+                _stub_cipher()
 
+        aes_mod = _mod("Crypto.Cipher.AES")
         aes_mod.AES = _AESStub
-        cipher.AES = aes_mod
+        cipher.AES = _AESStub
+        raw_aes.new = _stub_cipher
+        raw_aes_1.new = _stub_cipher
+        raw_api.create_cipher = _stub_cipher
+        raw_api.create_mac = _stub_cipher
+        sha256.new = _stub_cipher
+        hash_mod.sha256 = _stub_cipher
+        osrng.new = _stub_cipher
+        random_mod.new = _stub_cipher
+
         crypto.Cipher = cipher
-        sys.modules["Crypto"] = crypto
-        sys.modules["Crypto.Cipher"] = cipher
-        sys.modules["Crypto.Cipher.AES"] = aes_mod
-        log.warning("pycryptodome 不可用，已注入桩模块（不影响收发消息）")
+        crypto.Util = util
+        crypto.Hash = hash_mod
+        crypto.Random = random_mod
+
+        _stub_pycryptodome._done = True
+        log.warning("已注入完整 Crypto 桩模块（覆盖 _raw_aes 等被拦截的原生扩展，不影响长连接收发）")
     except Exception as e:
         log.warning("注入 Crypto 桩模块失败: %s", e)
 

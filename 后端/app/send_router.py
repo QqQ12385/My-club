@@ -74,8 +74,13 @@ async def _send_via(channel: str, msg: dict, text: str) -> SendResult:
 
 
 def _prefix_reply_to(text: str, sender: str, chat: str) -> str:
-    """给回复文本加“回给谁”标注，让目标平台侧也能看清回复对象。"""
+    """给回复文本加“回给谁”标注，让目标平台侧也能看清回复对象。
+    注意：单聊（私聊）本身就是一对一，不需要 @ 对方，直接发原文；
+    只有群聊才加“@发送人（群名）”前缀，用来在群里点明回复对象。"""
     if not sender:
         return text
-    label = f"@{sender}" if not chat else f"@{sender}（{chat}）"
+    # 单聊判定：chat 为空，或 chat 明确标注为“单聊”，都不加 @
+    if not chat or "单聊" in chat:
+        return text
+    label = f"@{sender}（{chat}）"
     return f"{label} {text}"

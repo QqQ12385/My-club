@@ -1,2 +1,0 @@
-docx:YES
-openpyxl:YES

@@ -8,6 +8,14 @@ let ws = null;
 let demoTimer = null;
 let demoIdx = 0;
 
+/* 已完成待办的持久化键（file:// 下 localStorage 可能受限，用 try 包裹，失败退化为内存） */
+const TODO_DONE_KEY = "umc_todo_done_v1";
+function saveTodoDone() {
+  const ids = (state.todos || []).filter(t => t.done).map(t => t.msgId);
+  state._todoDoneInMemory = ids;
+  try { localStorage.setItem(TODO_DONE_KEY, JSON.stringify(ids)); } catch (e) { /* 内存兜底 */ }
+}
+
 function updateWsStatus(mode, text) {
   const box = $("wsStatus");
   // 用 classList 增删，保留布局类（ws-inline 等），不要整体覆盖 className
@@ -217,11 +225,16 @@ async function loadBackendData() {
       if (frResp.ok) state.friends = await frResp.json();
     } catch (e) { /* 好友接口失败不阻塞主流程 */ }
 
-    // 2) 待办：从后端消息里提取 type=todo 且未完成的消息（后端无独立 todo 表）
-    state.todos = msgs.filter(m => m.type === "todo").map(m => ({
+    // 2) 待办：所有进来的消息都生成待办（含 AI 已自动回复的），默认未完成、待人工确认。
+    //    是否完成用 localStorage 持久化（file:// 受限时退化为内存），刷新不回退。
+    let doneSet = new Set();
+    try { doneSet = new Set(JSON.parse(localStorage.getItem(TODO_DONE_KEY) || "[]")); } catch (e) { doneSet = new Set(state._todoDoneInMemory || []); }
+    state._todoDoneInMemory = [...doneSet];
+    state.todos = msgs.filter(m => m.type !== "recall").map(m => ({
       id: "t" + m.id, msgId: m.id, platform: m.platform,
-      title: (m.content.replace("【待办】", "").split("，")[0] || m.content).split("。")[0],
-      detail: `来自 ${m.sender}`, deadline: "尽快处理", done: m.status === "synced" || m.status === "replied",
+      title: (m.content.replace("【待办】", "").split("，")[0] || m.content).split("。")[0] || "（媒体消息）",
+      detail: `来自 ${m.sender}` + (m.status === "replied" ? " · AI已自动回复，待人工确认" : ""),
+      deadline: "尽快处理", done: doneSet.has(m.id),
     }));
 
     // 3) 应用连接：后端连接状态（含真实长连接运行状态 running）
@@ -236,9 +249,14 @@ async function loadBackendData() {
 
     // 4) 个人资料：后端角色（已在前面 applyProfile，这里不再重复）
 
-    // 5) 会话上下文：按需懒加载（openChat 时 getThread 会请求，这里先清空缓存）
+    // 5) 会话上下文：先清空缓存，再主动重载当前打开会话的每条 thread。
+    //    这样即使刚才 WebSocket 断开、期间 AI 自动回复的 thread_update 没收到，
+    //    重连拉数据后当前会话的回复气泡也能立即补上，不会“网页看不到回复”。
     state.threads = {};
     state.trace = {};
+    if (state.currentContactKey && typeof loadThread === "function") {
+      (messagesOfContact(state.currentContactKey) || []).forEach(m => loadThread(m.id));
+    }
 
     renderAll();
     return true;
@@ -281,13 +299,12 @@ function pushMessage(data) {
   state.messages.unshift(msg);
   if (typeof refreshContactDisplayNames === "function") refreshContactDisplayNames();
 
-  // 含【待办】标记的文本自动生成待办项
-  if (msg.type === "todo" && msg.content.includes("【待办】")) {
-    const title = msg.content.replace("【待办】", "").split("，")[0].split("。")[0];
+  // 所有新消息都生成待办（含 AI 自动回复的），默认未完成、待人工确认
+  if (msg.type !== "recall") {
+    const title = (msg.content.replace("【待办】", "").split("，")[0].split("。")[0] || "（媒体消息）");
     state.todos.unshift({
-      id: "t" + state.msgSeq, msgId: msg.id, platform: msg.platform,
-      title: title || msg.content, detail: `来自 ${msg.sender}`,
-      deadline: "尽快处理", done: false,
+      id: "t" + msg.id, msgId: msg.id, platform: msg.platform,
+      title, detail: `来自 ${msg.sender}`, deadline: "尽快处理", done: false,
     });
   }
   addTrace(msg.id, "已接收", `来自 ${PLATFORMS[msg.platform].name}（${msg.sender}）`);
